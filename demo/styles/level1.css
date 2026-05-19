@@ -1,0 +1,23 @@
+/* styles/level1.css — Level styling */
+screen {
+    vignette: 0.3;
+    film-grain: 0.1;
+    color-grading: noir;
+}
+
+player:low-hp {
+    vignette: 0.8;
+    red-tint: 0.3;
+    pulse: yes;
+    pulse-speed: 1.5;
+}
+
+.wall {
+    texture: brick;
+    color: #444444;
+}
+
+.floor {
+    texture: tiles(size=0.5, grout-color=#222222);
+    color: #333333;
+}

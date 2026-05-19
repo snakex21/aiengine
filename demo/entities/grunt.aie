@@ -1,0 +1,25 @@
+# entities/grunt.aie — Prosty wróg (minimum)
+
+HUMANOID grunt
+HP 50
+HEAD small skin
+TORSO medium grey_shirt
+LEGS medium black_pants
+
+ANIM idle
+  FRAME 0
+    HEAD ROT 0 0 0
+  FRAME 30
+    HEAD ROT 0 10 0
+  FRAME 60
+    HEAD ROT 0 -10 0
+END
+
+ANIM walk
+  FRAME 0
+    LEGS ROT 10 0 0
+  FRAME 15
+    LEGS ROT -10 0 0
+  FRAME 30
+    LEGS ROT 10 0 0
+END

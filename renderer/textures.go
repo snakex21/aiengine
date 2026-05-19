@@ -1,0 +1,371 @@
+// renderer/textures.go — Procedural texture generation and OpenGL texture management.
+// Implements Perlin noise for generating brick, stone, metal, and other textures.
+// Also supports loading external textures from image files.
+// All textures are stored as OpenGL texture objects for use by the raycaster.
+
+package renderer
+
+import (
+	"fmt"
+	"image"
+	"image/color"
+	"image/draw"
+	"image/png"
+	"math"
+	"os"
+
+	"github.com/go-gl/gl/v4.1-core/gl"
+)
+
+// TexSize is the default resolution for procedural textures.
+const TexSize = 64
+
+// Texture2D wraps an OpenGL 2D texture with metadata.
+type Texture2D struct {
+	ID     uint32
+	Width  int32
+	Height int32
+}
+
+// TextureManager owns all loaded/generated textures, keyed by name.
+type TextureManager struct {
+	textures map[string]*Texture2D
+}
+
+// NewTextureManager creates an empty texture manager.
+func NewTextureManager() *TextureManager {
+	return &TextureManager{
+		textures: make(map[string]*Texture2D),
+	}
+}
+
+// Get returns a texture by name, or nil if not found.
+func (tm *TextureManager) Get(name string) *Texture2D {
+	return tm.textures[name]
+}
+
+// CreateFromImage uploads an image.Image to an OpenGL texture and registers it.
+func (tm *TextureManager) CreateFromImage(name string, img image.Image) (*Texture2D, error) {
+	bounds := img.Bounds()
+	rgba := image.NewRGBA(bounds)
+	draw.Draw(rgba, bounds, img, bounds.Min, draw.Src)
+
+	var texID uint32
+	gl.GenTextures(1, &texID)
+	gl.BindTexture(gl.TEXTURE_2D, texID)
+
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+
+	gl.TexImage2D(
+		gl.TEXTURE_2D,
+		0,
+		gl.RGBA,
+		int32(bounds.Dx()),
+		int32(bounds.Dy()),
+		0,
+		gl.RGBA,
+		gl.UNSIGNED_BYTE,
+		gl.Ptr(rgba.Pix),
+	)
+
+	tex := &Texture2D{
+		ID:     texID,
+		Width:  int32(bounds.Dx()),
+		Height: int32(bounds.Dy()),
+	}
+	tm.textures[name] = tex
+	return tex, nil
+}
+
+// CreateFromColor creates a solid-color 1x1 texture.
+func (tm *TextureManager) CreateFromColor(name string, r, g, b float64) (*Texture2D, error) {
+	img := image.NewRGBA(image.Rect(0, 0, 1, 1))
+	img.Set(0, 0, color.RGBA{
+		R: uint8(r * 255),
+		G: uint8(g * 255),
+		B: uint8(b * 255),
+		A: 255,
+	})
+	return tm.CreateFromImage(name, img)
+}
+
+// LoadFromFile loads a texture from a PNG file.
+func (tm *TextureManager) LoadFromFile(name, path string) (*Texture2D, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("opening texture %s: %w", path, err)
+	}
+	defer f.Close()
+
+	img, err := png.Decode(f)
+	if err != nil {
+		return nil, fmt.Errorf("decoding texture %s: %w", path, err)
+	}
+
+	return tm.CreateFromImage(name, img)
+}
+
+// GenerateBrick creates a procedural brick wall texture using a simple pattern.
+func (tm *TextureManager) GenerateBrick(name string, baseColor color.RGBA, mortarColor color.RGBA) (*Texture2D, error) {
+	img := image.NewRGBA(image.Rect(0, 0, TexSize, TexSize))
+
+	brickH := int32(TexSize / 4)  // 4 rows of bricks
+	brickW := int32(TexSize / 2)  // 2 bricks per row (with offset)
+
+	for y := int32(0); y < TexSize; y++ {
+		for x := int32(0); x < TexSize; x++ {
+			row := y / brickH
+			offset := int32(0)
+			if row%2 == 1 {
+				offset = brickW / 2
+			}
+
+			col := ((x - offset + TexSize) % TexSize) / brickW
+
+			// Mortar lines
+			isMortarX := ((x-offset+TexSize)%TexSize)%brickW < 1
+			isMortarY := y%brickH < 1
+
+			if isMortarX || isMortarY {
+				img.Set(int(x), int(y), mortarColor)
+			} else {
+				// Add slight variation to brick color.
+				noise := uint8((perlin2D(float64(x)/16.0, float64(y)/16.0)*20 - 10))
+				c := color.RGBA{
+					R: clampU8(int(baseColor.R) + int(noise)),
+					G: clampU8(int(baseColor.G) + int(noise)),
+					B: clampU8(int(baseColor.B) + int(noise)),
+					A: 255,
+				}
+				img.Set(int(x), int(y), c)
+			}
+			_ = col
+		}
+	}
+
+	return tm.CreateFromImage(name, img)
+}
+
+// GenerateNoise creates a Perlin-noise-based texture.
+func (tm *TextureManager) GenerateNoise(name string, scale float64, seed int64, baseColor color.RGBA) (*Texture2D, error) {
+	img := image.NewRGBA(image.Rect(0, 0, TexSize, TexSize))
+
+	// Use seed to offset sampling.
+	seedOff := float64(seed) * 127.1
+
+	for y := int32(0); y < TexSize; y++ {
+		for x := int32(0); x < TexSize; x++ {
+			nx := (float64(x) + seedOff) / float64(TexSize) * scale
+			ny := (float64(y) + seedOff) / float64(TexSize) * scale
+			noise := perlin2D(nx, ny) // range [-1, 1]
+			// Map to [0,1] and apply to base color.
+			brightness := (noise + 1.0) / 2.0 // [0, 1]
+			c := color.RGBA{
+				R: clampU8(int(float64(baseColor.R) * brightness)),
+				G: clampU8(int(float64(baseColor.G) * brightness)),
+				B: clampU8(int(float64(baseColor.B) * brightness)),
+				A: 255,
+			}
+			img.Set(int(x), int(y), c)
+		}
+	}
+
+	return tm.CreateFromImage(name, img)
+}
+
+// GenerateTiles creates a tile floor texture with grout lines.
+func (tm *TextureManager) GenerateTiles(name string, tileSize float64, groutColor, tileColor color.RGBA) (*Texture2D, error) {
+	img := image.NewRGBA(image.Rect(0, 0, TexSize, TexSize))
+	tilePx := int32(tileSize * float64(TexSize))
+
+	for y := int32(0); y < TexSize; y++ {
+		for x := int32(0); x < TexSize; x++ {
+			isGrout := x%tilePx < 1 || y%tilePx < 1
+			if isGrout {
+				img.Set(int(x), int(y), groutColor)
+			} else {
+				// Slight variation.
+				noise := uint8((perlin2D(float64(x)/8.0, float64(y)/8.0) * 10))
+				c := color.RGBA{
+					R: clampU8(int(tileColor.R) + int(noise)),
+					G: clampU8(int(tileColor.G) + int(noise)),
+					B: clampU8(int(tileColor.B) + int(noise)),
+					A: 255,
+				}
+				img.Set(int(x), int(y), c)
+			}
+		}
+	}
+
+	return tm.CreateFromImage(name, img)
+}
+
+// GenerateDefaultTextures creates a set of built-in procedural textures.
+func (tm *TextureManager) GenerateDefaultTextures() error {
+	generators := []struct {
+		name string
+		fn   func() error
+	}{
+		{"brick", func() error {
+			_, err := tm.GenerateBrick("brick",
+				color.RGBA{180, 100, 60, 255},
+				color.RGBA{80, 80, 80, 255})
+			return err
+		}},
+		{"stone", func() error {
+			_, err := tm.GenerateNoise("stone", 3.0, 42,
+				color.RGBA{140, 140, 140, 255})
+			return err
+		}},
+		{"metal", func() error {
+			_, err := tm.GenerateNoise("metal", 4.0, 7,
+				color.RGBA{160, 160, 170, 255})
+			return err
+		}},
+		{"tiles", func() error {
+			_, err := tm.GenerateTiles("tiles", 0.25,
+				color.RGBA{50, 50, 50, 255},
+				color.RGBA{120, 120, 120, 255})
+			return err
+		}},
+		{"wood", func() error {
+			_, err := tm.GenerateNoise("wood", 8.0, 99,
+				color.RGBA{139, 90, 43, 255})
+			return err
+		}},
+		{"concrete", func() error {
+			_, err := tm.GenerateNoise("concrete", 2.0, 13,
+				color.RGBA{128, 128, 128, 255})
+			return err
+		}},
+		{"skin", func() error {
+			_, err := tm.GenerateNoise("skin", 6.0, 77,
+				color.RGBA{210, 148, 106, 255})
+			return err
+		}},
+		{"cloth", func() error {
+			_, err := tm.GenerateNoise("cloth", 5.0, 33,
+				color.RGBA{102, 102, 102, 255})
+			return err
+		}},
+		{"sprite_default", func() error {
+			_, err := tm.CreateFromColor("sprite_default", 1.0, 0.0, 0.0)
+			return err
+		}},
+		{"sprite_enemy", func() error {
+			_, err := tm.CreateFromColor("sprite_enemy", 1.0, 0.2, 0.2)
+			return err
+		}},
+		{"sprite_prop", func() error {
+			_, err := tm.CreateFromColor("sprite_prop", 0.6, 0.4, 0.2)
+			return err
+		}},
+	}
+
+	for _, g := range generators {
+		if err := g.fn(); err != nil {
+			return fmt.Errorf("generating %s: %w", g.name, err)
+		}
+	}
+
+	return nil
+}
+
+// Delete releases all textures.
+func (tm *TextureManager) Delete() {
+	for _, tex := range tm.textures {
+		gl.DeleteTextures(1, &tex.ID)
+	}
+	tm.textures = make(map[string]*Texture2D)
+}
+
+// --- Perlin noise implementation (2D) ---
+
+// perm is the permutation table for Perlin noise.
+var perm = [512]int{}
+
+func init() {
+	// Standard Perlin permutation table.
+	p := [256]int{
+		151, 160, 137, 91, 90, 15, 131, 13, 201, 95, 96, 53, 194, 233, 7, 225,
+		140, 36, 103, 30, 69, 142, 8, 99, 37, 240, 21, 10, 23, 190, 6, 148,
+		247, 120, 234, 75, 0, 26, 197, 62, 94, 252, 219, 203, 117, 35, 11, 32,
+		57, 177, 33, 88, 237, 149, 56, 87, 174, 20, 125, 136, 171, 168, 68, 175,
+		74, 165, 71, 134, 139, 48, 27, 166, 77, 146, 158, 231, 83, 111, 229, 122,
+		60, 211, 133, 230, 220, 105, 92, 41, 55, 46, 245, 40, 244, 102, 143, 54,
+		65, 25, 63, 161, 1, 216, 80, 73, 209, 76, 132, 187, 208, 89, 18, 169,
+		200, 196, 135, 130, 116, 188, 159, 86, 164, 100, 109, 198, 173, 186, 3, 64,
+		52, 217, 226, 250, 124, 123, 5, 202, 38, 147, 118, 126, 255, 82, 85, 212,
+		207, 206, 59, 227, 47, 16, 58, 17, 182, 189, 28, 42, 223, 183, 170, 213,
+		119, 248, 152, 2, 44, 154, 163, 70, 221, 153, 101, 155, 167, 43, 172, 9,
+		129, 22, 39, 253, 19, 98, 108, 110, 79, 113, 224, 232, 178, 185, 112, 104,
+		218, 246, 97, 228, 251, 34, 242, 193, 238, 210, 144, 12, 191, 179, 162, 241,
+		81, 51, 145, 235, 249, 14, 239, 107, 49, 192, 214, 31, 181, 199, 106, 157,
+		184, 84, 204, 176, 115, 121, 50, 45, 127, 4, 150, 254, 138, 236, 205, 93,
+		222, 114, 67, 29, 24, 72, 243, 141, 128, 195, 78, 66, 215, 61, 156, 180,
+	}
+	for i := 0; i < 512; i++ {
+		perm[i] = p[i&255]
+	}
+}
+
+func fade(t float64) float64 {
+	return t * t * t * (t*(t*6-15) + 10)
+}
+
+func lerp(a, b, t float64) float64 {
+	return a + t*(b-a)
+}
+
+func grad(hash int, x, y float64) float64 {
+	h := hash & 3
+	u := 0.0
+	v := 0.0
+	if h == 0 {
+		u, v = x, y
+	} else if h == 1 {
+		u, v = y, -x
+	} else if h == 2 {
+		u, v = -x, -y
+	} else {
+		u, v = -y, x
+	}
+	return u + v
+}
+
+// perlin2D returns Perlin noise value for 2D coordinates in range [-1, 1].
+func perlin2D(x, y float64) float64 {
+	xi := int(math.Floor(x)) & 255
+	yi := int(math.Floor(y)) & 255
+
+	x -= math.Floor(x)
+	y -= math.Floor(y)
+
+	u := fade(x)
+	v := fade(y)
+
+	aa := perm[perm[xi]+yi]
+	ab := perm[perm[xi]+yi+1]
+	ba := perm[perm[xi+1]+yi]
+	bb := perm[perm[xi+1]+yi+1]
+
+	return lerp(
+		lerp(grad(aa, x, y), grad(ba, x-1, y), u),
+		lerp(grad(ab, x, y-1), grad(bb, x-1, y-1), u),
+		v,
+	)
+}
+
+// clampU8 clamps an int to [0, 255].
+func clampU8(v int) uint8 {
+	if v < 0 {
+		return 0
+	}
+	if v > 255 {
+		return 255
+	}
+	return uint8(v)
+}

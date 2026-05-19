@@ -1,0 +1,51 @@
+# entities/boss_kaiju.aie — Złożony boss
+
+GIANT kaiju
+HP 5000
+HP_PARTS
+  HEAD 800
+  TORSO 2000
+  ARM_LEFT 600
+  ARM_RIGHT 600
+  LEG_LEFT 500
+  LEG_RIGHT 500
+HP_PHASES
+  PHASE 2 hp=3000
+  PHASE 3 hp=1000
+WEAK_SPOT HEAD multiplier=3.0
+ARMOR TORSO reduction=0.5
+BEHAVIOR
+  COLLAPSE yes
+  SHATTER yes parts=8
+  EARTHQUAKE yes intensity=0.8
+
+BODY huge dark_scales
+HEAD huge dark_scales
+ARMS 2 huge dark_scales
+LEGS 2 huge dark_scales
+TAIL huge dark_scales
+
+ANIM idle
+  FRAME 0
+    HEAD ROT 0 5 0
+  FRAME 30
+    HEAD ROT 0 -5 0
+  FRAME 60
+    HEAD ROT 0 5 0
+END
+
+ANIM roar
+  FRAME 0
+    HEAD ROT -20 0 0
+  FRAME 10
+    HEAD ROT 20 0 0
+  FRAME 20
+    HEAD ROT 0 0 0
+END
+
+ANIM phase2
+  FRAME 0
+    BODY SHAKE 0.5
+  FRAME 5
+    BODY SHAKE 0.0
+END

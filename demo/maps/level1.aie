@@ -1,0 +1,40 @@
+# maps/level1.aie — Demo level 1
+# Prosta mapa z triggerami, obiektami i oświetleniem.
+
+MAP level1
+MUSIC dark_ambient.ogg loop=yes
+LIGHT_AMBIENT 0.1
+FOG yes color=#000000 density=0.2
+
+GRID
+W W W W W W W W W W
+W P . . . W . . . W
+W . B . . D . E . W
+W . . . . W . . . W
+W W W W W W W W W W
+
+# Obiekty na mapie
+PLACE enemy grunt zone1_spawn1 5.0 0.0 2.0
+PLACE enemy grunt zone1_spawn2 5.0 0.0 3.0
+PLACE enemy boss_kaiju boss_spawn 8.0 0.0 2.0
+PLACE prop barrel 3.0 0.0 2.0
+PLACE weapon pistol 2.0 0.0 1.0
+PLACE light 5.0 1.0 2.0 color=#FF9932 radius=4.0
+
+# Triggery
+TRIGGER zone1_clear
+  CONDITION all_enemies_dead zone1
+  ACTION unlock_door door_zone2
+  ACTION play_sound checkpoint.ogg
+  ACTION show_message "Strefa 1 oczyszczona!"
+  ACTION start_lua onZone1Clear
+
+TRIGGER boss_trigger
+  CONDITION player_enters boss_zone
+  ACTION start_lua onBossSpawn
+  ACTION change_music boss_theme.ogg
+
+TRIGGER low_hp_warning
+  CONDITION hp_below 20
+  ACTION play_sound heartbeat.ogg
+  ACTION show_message "Ostrzezenie: niskie HP!"

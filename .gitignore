@@ -1,0 +1,17 @@
+# Binary
+aiengine.exe
+*.exe
+
+# Go
+*.test
+*.out
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

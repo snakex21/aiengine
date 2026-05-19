@@ -1,0 +1,30 @@
+# config.aie — AIEngine keybinding configuration
+# Format: BIND <action_name> <key>
+# Lines starting with # are comments.
+
+# Window
+WINDOW_WIDTH 1280
+WINDOW_HEIGHT 720
+
+# Movement
+BIND move_forward W
+BIND move_backward S
+BIND move_left A
+BIND move_right D
+
+# Combat
+BIND shoot MOUSE_LEFT
+BIND reload R
+BIND alt_attack MOUSE_RIGHT
+BIND next_weapon TAB
+
+# Actions
+BIND interact E
+BIND jump SPACE
+BIND crouch C
+BIND sprint LEFT_SHIFT
+BIND use_item F
+
+# System
+BIND fullscreen F11
+BIND pause ESCAPE

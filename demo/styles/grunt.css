@@ -1,0 +1,5 @@
+/* styles/grunt.css — Minimal enemy styling */
+.grunt {
+    color: #666666;
+    texture: cloth;
+}
