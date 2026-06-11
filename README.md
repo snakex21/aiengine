@@ -27,11 +27,68 @@ and introduces its own `.aie` format for AI-generated game content.
 git clone https://github.com/snakex21/aiengine.git
 cd aiengine
 go mod tidy
-go build -o aiengine.exe .
-./aiengine.exe
+go build -o bin/aiengine.exe .
+./bin/aiengine.exe
+```
+
+Or build both engine and editor on Windows:
+
+```powershell
+./scripts/build.ps1 -RunTests
 ```
 
 **Requirements:** Go 1.26+, OpenGL 3.3+, Windows 10/11 64-bit.
+
+### Project layout
+
+Game projects live in `projects/<name>/`, so every project can keep its own
+maps, scripts, styles, config, and assets:
+
+```text
+projects/demo/
+├─ config.aie
+├─ manifest.aie
+├─ assets/
+├─ entities/
+├─ maps/
+├─ scripts/
+└─ styles/
+```
+
+By default the engine runs `projects/demo`. To run another project:
+
+```bash
+AIENGINE_PROJECT=projects/my-game ./bin/aiengine.exe
+```
+
+You can also pass a project explicitly:
+
+```bash
+./bin/aiengine.exe --project my-game
+./bin/aiengine.exe --project projects/my-game
+```
+
+If multiple projects exist and no project is provided, `aiengine.exe` lists
+available projects in the console and asks which one to run.
+
+### Native editor
+
+The lightweight editor is now a Go + WebView2 desktop app. It does **not** use
+Tauri, Vite, Electron, or a localhost dev server.
+
+```bash
+go build -ldflags "-H=windowsgui" -o bin/AIEngine-Editor.exe ./cmd/editor
+./bin/AIEngine-Editor.exe
+```
+
+For console logs while developing, omit `-ldflags "-H=windowsgui"`:
+
+```bash
+go run ./cmd/editor
+```
+
+On Windows it uses Microsoft Edge WebView2 Runtime, which is usually already
+installed on Windows 10/11.
 
 ---
 

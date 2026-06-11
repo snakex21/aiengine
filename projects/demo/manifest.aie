@@ -1,0 +1,13 @@
+# manifest.aie — AIEngine project manifest
+MANIFEST
+  PROJECT Demo
+  ENGINE  aiengine 1.0
+  CREATED 2026-05-19 20:59:45
+  FORMAT  project v1
+  CONFIG config.aie
+  MAIN_MAP maps/level1.aie
+  MAIN_SCRIPT scripts/level1.lua
+  HUD_SCRIPT scripts/hud.js
+  PLAYER_ASSETS assets/sprites/player
+  PLAYER_ATLAS gracz.png
+  ENEMY_ATLAS przeciwnik.png

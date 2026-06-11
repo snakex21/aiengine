@@ -235,14 +235,20 @@ func (jb *JSBridge) registerAPI() {
 	uiObj.Set("setHP", func(call goja.FunctionCall) goja.Value {
 		current := call.Argument(0).ToFloat()
 		max := call.Argument(1).ToFloat()
-		log.Printf("[JS] UI.setHP(%f, %f)", current, max)
+		e.mu.Lock()
+		e.PlayerHP = current
+		e.PlayerMaxHP = max
+		e.mu.Unlock()
 		return goja.Undefined()
 	})
 
 	uiObj.Set("setAmmo", func(call goja.FunctionCall) goja.Value {
-		current := call.Argument(0).ToInteger()
-		reserve := call.Argument(1).ToInteger()
-		log.Printf("[JS] UI.setAmmo(%d, %d)", current, reserve)
+		current := int(call.Argument(0).ToInteger())
+		reserve := int(call.Argument(1).ToInteger())
+		e.mu.Lock()
+		e.HUDAmmo = current
+		e.HUDAmmoMax = reserve
+		e.mu.Unlock()
 		return goja.Undefined()
 	})
 

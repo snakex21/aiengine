@@ -20,11 +20,12 @@ import (
 // TexSize is the default resolution for procedural textures.
 const TexSize = 64
 
-// Texture2D wraps an OpenGL 2D texture with metadata.
+// Texture2D wraps an OpenGL 2D texture with metadata and CPU-side pixel data.
 type Texture2D struct {
 	ID     uint32
 	Width  int32
 	Height int32
+	Pixels []uint8 // raw RGBA pixel data for CPU sampling
 }
 
 // TextureManager owns all loaded/generated textures, keyed by name.
@@ -75,6 +76,7 @@ func (tm *TextureManager) CreateFromImage(name string, img image.Image) (*Textur
 		ID:     texID,
 		Width:  int32(bounds.Dx()),
 		Height: int32(bounds.Dy()),
+		Pixels: rgba.Pix, // keep CPU-side copy for raycaster sampling
 	}
 	tm.textures[name] = tex
 	return tex, nil
@@ -108,12 +110,310 @@ func (tm *TextureManager) LoadFromFile(name, path string) (*Texture2D, error) {
 	return tm.CreateFromImage(name, img)
 }
 
+// LoadSpriteSheet loads a regular PNG spritesheet and registers each cell as
+// namePrefix_0, namePrefix_1, ... in row-major order.
+func (tm *TextureManager) LoadSpriteSheet(namePrefix, path string, cols, rows int) error {
+	if cols <= 0 || rows <= 0 {
+		return fmt.Errorf("invalid spritesheet grid %dx%d", cols, rows)
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("opening spritesheet %s: %w", path, err)
+	}
+	defer f.Close()
+
+	img, err := png.Decode(f)
+	if err != nil {
+		return fmt.Errorf("decoding spritesheet %s: %w", path, err)
+	}
+
+	b := img.Bounds()
+	cellW := b.Dx() / cols
+	cellH := b.Dy() / rows
+	if cellW <= 0 || cellH <= 0 {
+		return fmt.Errorf("spritesheet %s too small for %dx%d grid", path, cols, rows)
+	}
+
+	for row := 0; row < rows; row++ {
+		for col := 0; col < cols; col++ {
+			idx := row*cols + col
+			cell := image.NewRGBA(image.Rect(0, 0, cellW, cellH))
+			src := image.Rect(b.Min.X+col*cellW, b.Min.Y+row*cellH, b.Min.X+(col+1)*cellW, b.Min.Y+(row+1)*cellH)
+			draw.Draw(cell, cell.Bounds(), img, src.Min, draw.Src)
+			prepareSpriteFrame(cell)
+			cell = trimToVisibleSquare(cell, 8)
+			if _, err := tm.CreateFromImage(fmt.Sprintf("%s_%d", namePrefix, idx), cell); err != nil {
+				return fmt.Errorf("creating spritesheet frame %d: %w", idx, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// LoadWeaponHandAtlas extracts the user's Glock hand atlas into named frames:
+// player_idle_0..4, player_shoot_0..3, player_reload_0..4. The source image is
+// a labelled atlas, not a uniform 3x2 sheet, so regions are defined in original
+// 1600x1000 atlas coordinates and scaled to the actual PNG size.
+func (tm *TextureManager) LoadWeaponHandAtlas(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("opening weapon atlas %s: %w", path, err)
+	}
+	defer f.Close()
+
+	img, err := png.Decode(f)
+	if err != nil {
+		return fmt.Errorf("decoding weapon atlas %s: %w", path, err)
+	}
+
+	b := img.Bounds()
+	sx := float64(b.Dx()) / 1600.0
+	sy := float64(b.Dy()) / 1000.0
+
+	type atlasFrame struct {
+		name       string
+		x, y, w, h int
+	}
+
+	frames := []atlasFrame{
+		// IDLE row, 5 columns.
+		{"player_idle_0", 35, 150, 285, 230},
+		{"player_idle_1", 325, 150, 285, 230},
+		{"player_idle_2", 635, 150, 285, 230},
+		{"player_idle_3", 945, 150, 285, 230},
+		{"player_idle_4", 1260, 150, 285, 230},
+
+		// SHOOT row. Includes muzzle flash and casing where present.
+		{"player_shoot_0", 45, 435, 285, 230},
+		{"player_shoot_1", 345, 405, 285, 260},
+		{"player_shoot_2", 640, 420, 300, 245},
+		{"player_shoot_3", 950, 435, 285, 230},
+
+		// RELOAD row, selected clean key poses.
+		{"player_reload_0", 25, 720, 235, 250},
+		{"player_reload_1", 245, 720, 235, 250},
+		{"player_reload_2", 480, 720, 260, 250},
+		{"player_reload_3", 700, 700, 245, 290},
+		{"player_reload_4", 880, 720, 300, 250},
+		{"player_reload_5", 1120, 700, 285, 270},
+		{"player_reload_6", 1325, 720, 245, 250},
+	}
+
+	for _, fr := range frames {
+		src := image.Rect(
+			b.Min.X+int(float64(fr.x)*sx),
+			b.Min.Y+int(float64(fr.y)*sy),
+			b.Min.X+int(float64(fr.x+fr.w)*sx),
+			b.Min.Y+int(float64(fr.y+fr.h)*sy),
+		)
+		src = src.Intersect(b)
+		if src.Empty() {
+			return fmt.Errorf("empty atlas frame %s", fr.name)
+		}
+		cell := image.NewRGBA(image.Rect(0, 0, src.Dx(), src.Dy()))
+		draw.Draw(cell, cell.Bounds(), img, src.Min, draw.Src)
+		prepareSpriteFrame(cell)
+		cell = trimToVisibleSquare(cell, 16)
+		if _, err := tm.CreateFromImage(fr.name, cell); err != nil {
+			return fmt.Errorf("creating atlas frame %s: %w", fr.name, err)
+		}
+	}
+
+	return nil
+}
+
+func prepareSpriteFrame(img *image.RGBA) {
+	bg := img.RGBAAt(0, 0)
+	applyTopLeftColorKey(img, 48)
+	if bg.A >= 250 {
+		removeDarkBackground(img, 42)
+	}
+	removeSmallAlphaComponents(img, 160)
+}
+
+func applyTopLeftColorKey(img *image.RGBA, threshold uint8) {
+	if img.Bounds().Empty() {
+		return
+	}
+	bg := img.RGBAAt(0, 0)
+	if bg.A < 250 {
+		return
+	}
+	thr := int(threshold)
+	for y := img.Bounds().Min.Y; y < img.Bounds().Max.Y; y++ {
+		for x := img.Bounds().Min.X; x < img.Bounds().Max.X; x++ {
+			c := img.RGBAAt(x, y)
+			if absInt(int(c.R)-int(bg.R)) <= thr && absInt(int(c.G)-int(bg.G)) <= thr && absInt(int(c.B)-int(bg.B)) <= thr {
+				c.A = 0
+				img.SetRGBA(x, y, c)
+			}
+		}
+	}
+}
+
+func removeDarkBackground(img *image.RGBA, maxRGB uint8) {
+	limit := int(maxRGB)
+	for y := img.Bounds().Min.Y; y < img.Bounds().Max.Y; y++ {
+		for x := img.Bounds().Min.X; x < img.Bounds().Max.X; x++ {
+			c := img.RGBAAt(x, y)
+			if c.A == 0 {
+				continue
+			}
+			if int(c.R) <= limit && int(c.G) <= limit && int(c.B) <= limit {
+				c.A = 0
+				img.SetRGBA(x, y, c)
+			}
+		}
+	}
+}
+
+func removeSmallAlphaComponents(img *image.RGBA, minArea int) {
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	visited := make([]bool, w*h)
+	queue := make([]int, 0, w*h/8)
+	component := make([]int, 0, 1024)
+
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			start := y*w + x
+			if visited[start] || img.RGBAAt(b.Min.X+x, b.Min.Y+y).A == 0 {
+				continue
+			}
+			visited[start] = true
+			queue = append(queue[:0], start)
+			component = append(component[:0], start)
+
+			for head := 0; head < len(queue); head++ {
+				idx := queue[head]
+				cx := idx % w
+				cy := idx / w
+				neighbors := [][2]int{{cx - 1, cy}, {cx + 1, cy}, {cx, cy - 1}, {cx, cy + 1}}
+				for _, n := range neighbors {
+					nx, ny := n[0], n[1]
+					if nx < 0 || nx >= w || ny < 0 || ny >= h {
+						continue
+					}
+					nidx := ny*w + nx
+					if visited[nidx] || img.RGBAAt(b.Min.X+nx, b.Min.Y+ny).A == 0 {
+						continue
+					}
+					visited[nidx] = true
+					queue = append(queue, nidx)
+					component = append(component, nidx)
+				}
+			}
+
+			if len(component) < minArea {
+				for _, idx := range component {
+					px := b.Min.X + idx%w
+					py := b.Min.Y + idx/w
+					c := img.RGBAAt(px, py)
+					c.A = 0
+					img.SetRGBA(px, py, c)
+				}
+			}
+		}
+	}
+}
+
+func trimToVisibleSquare(img *image.RGBA, padding int) *image.RGBA {
+	b := img.Bounds()
+	minX, minY := b.Max.X, b.Max.Y
+	maxX, maxY := b.Min.X, b.Min.Y
+	found := false
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			if img.RGBAAt(x, y).A == 0 {
+				continue
+			}
+			found = true
+			if x < minX {
+				minX = x
+			}
+			if y < minY {
+				minY = y
+			}
+			if x > maxX {
+				maxX = x
+			}
+			if y > maxY {
+				maxY = y
+			}
+		}
+	}
+	if !found {
+		return img
+	}
+	minX = maxInt(b.Min.X, minX-padding)
+	minY = maxInt(b.Min.Y, minY-padding)
+	maxX = minInt(b.Max.X, maxX+padding+1)
+	maxY = minInt(b.Max.Y, maxY+padding+1)
+	cropped := image.NewRGBA(image.Rect(0, 0, maxX-minX, maxY-minY))
+	draw.Draw(cropped, cropped.Bounds(), img, image.Point{X: minX, Y: minY}, draw.Src)
+	side := maxInt(cropped.Bounds().Dx(), cropped.Bounds().Dy())
+	out := image.NewRGBA(image.Rect(0, 0, side, side))
+	off := image.Point{X: (side - cropped.Bounds().Dx()) / 2, Y: (side - cropped.Bounds().Dy()) / 2}
+	draw.Draw(out, image.Rect(off.X, off.Y, off.X+cropped.Bounds().Dx(), off.Y+cropped.Bounds().Dy()), cropped, image.Point{}, draw.Src)
+	return out
+}
+
+func absInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func (tm *TextureManager) GenerateEnemyBillboard(name string) (*Texture2D, error) {
+	img := image.NewRGBA(image.Rect(0, 0, TexSize, TexSize))
+	body := color.RGBA{170, 45, 45, 255}
+	dark := color.RGBA{70, 20, 20, 255}
+	eye := color.RGBA{255, 220, 80, 255}
+	for y := 0; y < TexSize; y++ {
+		for x := 0; x < TexSize; x++ {
+			dx := float64(x-32) / 16.0
+			dy := float64(y-20) / 14.0
+			if dx*dx+dy*dy <= 1.0 {
+				img.SetRGBA(x, y, body)
+			}
+			bdx := float64(x-32) / 18.0
+			bdy := float64(y-44) / 20.0
+			if bdx*bdx+bdy*bdy <= 1.0 {
+				img.SetRGBA(x, y, body)
+			}
+			if (x > 12 && x < 24 && y > 34 && y < 58) || (x > 40 && x < 52 && y > 34 && y < 58) {
+				img.SetRGBA(x, y, dark)
+			}
+		}
+	}
+	img.SetRGBA(25, 19, eye)
+	img.SetRGBA(39, 19, eye)
+	return tm.CreateFromImage(name, img)
+}
+
 // GenerateBrick creates a procedural brick wall texture using a simple pattern.
 func (tm *TextureManager) GenerateBrick(name string, baseColor color.RGBA, mortarColor color.RGBA) (*Texture2D, error) {
 	img := image.NewRGBA(image.Rect(0, 0, TexSize, TexSize))
 
-	brickH := int32(TexSize / 4)  // 4 rows of bricks
-	brickW := int32(TexSize / 2)  // 2 bricks per row (with offset)
+	brickH := int32(TexSize / 4) // 4 rows of bricks
+	brickW := int32(TexSize / 2) // 2 bricks per row (with offset)
 
 	for y := int32(0); y < TexSize; y++ {
 		for x := int32(0); x < TexSize; x++ {
@@ -256,7 +556,7 @@ func (tm *TextureManager) GenerateDefaultTextures() error {
 			return err
 		}},
 		{"sprite_enemy", func() error {
-			_, err := tm.CreateFromColor("sprite_enemy", 1.0, 0.2, 0.2)
+			_, err := tm.GenerateEnemyBillboard("sprite_enemy")
 			return err
 		}},
 		{"sprite_prop", func() error {

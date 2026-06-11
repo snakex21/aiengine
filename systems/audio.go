@@ -7,6 +7,7 @@ package systems
 
 import (
 	"fmt"
+	"log"
 	"math"
 	"math/rand"
 )
@@ -312,34 +313,82 @@ type AudioSystem struct {
 	Clips      []*AudioClip
 	MusicClip  *AudioClip
 
+	// Audio backend for real-time playback.
+	Backend *AudioBackend
+
 	// Procedural sound library.
 	SoundDefs map[string]SoundDef
+
+	// Sound file search paths.
+	SoundPaths []string
 
 	// Spatial audio parameters.
 	ListenerPos Vec3
 }
 
 // NewAudioSystem creates an audio system with default sample rate.
+// Call InitBackend() to enable actual audio output.
 func NewAudioSystem() *AudioSystem {
 	return &AudioSystem{
 		SampleRate: 44100,
 		MasterVol:  1.0,
 		SoundDefs:  make(map[string]SoundDef),
+		SoundPaths: []string{"projects/demo/sounds", "."},
 	}
 }
 
-// RegisterSoundDef adds a procedural sound definition to the library.
+// InitBackend initializes the oto audio backend for real playback.
+func (as *AudioSystem) InitBackend() error {
+	backend, err := NewAudioBackend(as.SampleRate, as.SoundPaths)
+	if err != nil {
+		return err
+	}
+	as.Backend = backend
+
+	// Cache all registered procedural sounds.
+	for name, sd := range as.SoundDefs {
+		backend.CacheProcedural(name, sd)
+	}
+
+	return nil
+}
+
+// RegisterSoundDef stores a procedural sound definition. If backend is already
+// running, also caches it immediately.
 func (as *AudioSystem) RegisterSoundDef(sd SoundDef) {
 	as.SoundDefs[sd.Name] = sd
+	if as.Backend != nil {
+		as.Backend.CacheProcedural(sd.Name, sd)
+	}
 }
 
-// PlaySoundDef generates and plays a procedural sound by name.
+// PlaySoundDef plays a procedural sound by name (for backward compat).
 func (as *AudioSystem) PlaySoundDef(name string) *AudioClip {
-	sd, ok := as.SoundDefs[name]
-	if !ok {
-		return nil
+	as.PlaySound(name)
+	return nil
+}
+
+// PlaySound plays a sound by name. Delegates to the backend.
+func (as *AudioSystem) PlaySound(name string) {
+	if as.Backend != nil {
+		as.Backend.PlaySound(name)
+	} else {
+		log.Printf("[Audio] Backend not ready, cannot play: %s", name)
 	}
-	return as.PlayGenerated(sd)
+}
+
+// StopAll stops all audio playback.
+func (as *AudioSystem) StopAll() {
+	if as.Backend != nil {
+		as.Backend.StopAll()
+	}
+}
+
+// Shutdown releases audio resources.
+func (as *AudioSystem) Shutdown() {
+	if as.Backend != nil {
+		as.Backend.Shutdown()
+	}
 }
 
 // PlayGenerated generates samples from a SoundDef and starts playback.
@@ -371,15 +420,6 @@ func (as *AudioSystem) StopMusic() {
 		as.MusicClip.Playing = false
 		as.MusicClip = nil
 	}
-}
-
-// StopAll stops all audio clips.
-func (as *AudioSystem) StopAll() {
-	for _, c := range as.Clips {
-		c.Playing = false
-	}
-	as.Clips = as.Clips[:0]
-	as.MusicClip = nil
 }
 
 // Mix renders all active clips into a stereo buffer.

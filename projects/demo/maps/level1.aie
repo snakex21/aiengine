@@ -8,9 +8,9 @@ FOG yes color=#000000 density=0.2
 
 GRID
 W W W W W W W W W W
-W P . . . W . . . W
+W P . . . S . . . W
 W . B . . D . E . W
-W . . . . W . . . W
+W . . . . S . . . W
 W W W W W W W W W W
 
 # Obiekty na mapie

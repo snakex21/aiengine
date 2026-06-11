@@ -12,6 +12,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // AIENode represents a single parsed element from a .aie file.
@@ -279,19 +280,18 @@ func addPropertyOrChild(parent *AIENode, parts []string, firstUpper string, trim
 	parent.Properties[key] = value
 }
 
-// isGridRow returns true if a line consists only of valid grid symbols and spaces.
-// Grid symbols: W . P E B D L # (and numeric digits for extended use).
+// isGridRow returns true if a line is a grid data row: a whitespace-separated
+// sequence of single-character tile symbols (e.g. "W P . . S . W"). This is
+// symbol-agnostic so AI-generated maps may use any single-rune tile markers,
+// while real keywords (PLACE, TRIGGER, MUSIC, ...) are multi-character tokens
+// and are correctly rejected.
 func isGridRow(line string) bool {
-	if line == "" {
+	fields := strings.Fields(line)
+	if len(fields) == 0 {
 		return false
 	}
-	for _, ch := range line {
-		switch ch {
-		case 'W', 'w', '.', 'P', 'p', 'E', 'e', 'B', 'b',
-			'D', 'd', 'L', 'l', '#', ' ', '\t',
-			'0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
-			// Valid grid character.
-		default:
+	for _, f := range fields {
+		if utf8.RuneCountInString(f) != 1 {
 			return false
 		}
 	}

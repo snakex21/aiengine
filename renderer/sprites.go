@@ -14,6 +14,7 @@ type Sprite struct {
 	Alpha    float32 // transparency
 	Active   bool    // if false, sprite is not rendered
 	EntityID string  // optional reference to entity
+	IsWeapon bool    // HUD element – skip Z‑buffer, always on top
 }
 
 // SpriteBatch manages a collection of sprites and renders them efficiently.
@@ -51,11 +52,12 @@ func (sb *SpriteBatch) Clear() {
 }
 
 // CreateDefaultSprites creates a set of example sprites for testing.
+// All positions are on empty cells (0) in the 10x10 test map.
 func CreateDefaultSprites() []*Sprite {
 	return []*Sprite{
-		{X: 5.5, Y: 2.5, Z: 0, Scale: 0.8, TexName: "sprite_enemy", Alpha: 1.0, Active: true, EntityID: "enemy1"},
-		{X: 8.5, Y: 3.5, Z: 0, Scale: 0.8, TexName: "sprite_enemy", Alpha: 1.0, Active: true, EntityID: "enemy2"},
-		{X: 3.5, Y: 6.5, Z: 0, Scale: 0.7, TexName: "sprite_prop", Alpha: 1.0, Active: true, EntityID: "prop1"},
-		{X: 7.5, Y: 7.5, Z: 0, Scale: 0.7, TexName: "sprite_prop", Alpha: 1.0, Active: true, EntityID: "prop2"},
+		{X: 1.5, Y: 3.5, Z: 0, Scale: 0.8, TexName: "sprite_enemy", Alpha: 1.0, Active: true, EntityID: "enemy1"},
+		{X: 7.5, Y: 2.5, Z: 0, Scale: 0.8, TexName: "sprite_enemy", Alpha: 1.0, Active: true, EntityID: "enemy2"},
+		{X: 4.5, Y: 3.5, Z: 0, Scale: 0.7, TexName: "sprite_prop", Alpha: 1.0, Active: true, EntityID: "prop1"},
+		{X: 5.5, Y: 3.5, Z: 0, Scale: 0.7, TexName: "sprite_prop", Alpha: 1.0, Active: true, EntityID: "prop2"},
 	}
 }

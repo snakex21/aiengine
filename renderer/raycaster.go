@@ -117,6 +117,21 @@ type Raycaster struct {
 
 	// Effects (applied via simple post-processing).
 	effects *EffectsConfig
+
+	// Console overlay (cheat console).
+	ConsoleOpen    bool
+	ConsoleInput   string
+	ConsoleHistory []string
+
+	// HUD weapon (first‑person view).
+	HUDWeaponTex string
+	HUDWeaponBob float64
+
+	HUDEnabled bool
+	HUDHP      int
+	HUDMaxHP   int
+	HUDAmmo    int
+	HUDAmmoMax int
 }
 
 func NewRaycaster(m *MapData, p *PlayerState, tm *TextureManager) *Raycaster {
@@ -249,6 +264,7 @@ func (rc *Raycaster) Render(sprites []*Sprite) {
 
 	// 4. Draw sprites as GPU overlay (using Z-buffer from DDA).
 	rc.drawSprites(sprites)
+	rc.DrawHUDWeapon()
 	gl.Enable(gl.DEPTH_TEST)
 
 	checkGLError("Render end")
@@ -398,26 +414,195 @@ func (rc *Raycaster) renderToBuffer(sprites []*Sprite) {
 			shade *= 0.7 // Y-side darker
 		}
 
-		// Wall color.
-		wc := wallColors[wallType]
-		r := uint8(float64(wc.R) * shade)
-		g := uint8(float64(wc.G) * shade)
-		b := uint8(float64(wc.B) * shade)
-
-		// Simple texture-like horizontal variation.
-		texStripe := uint8(float64(wallX) * 255.0)
-		r = uint8(float64(r)*0.7 + float64(texStripe)*0.3)
-		g = uint8(float64(g)*0.7 + float64(texStripe)*0.3)
-		b = uint8(float64(b)*0.7 + float64(texStripe)*0.3)
-
-		// Fill column.
-		for y := drawStart; y < drawEnd; y++ {
-			idx := (y*sw + x) * 4
-			rc.pixels[idx] = r
-			rc.pixels[idx+1] = g
-			rc.pixels[idx+2] = b
-			rc.pixels[idx+3] = 255
+		// Select texture by wall type.
+		texName := "brick"
+		switch wallType {
+		case CellWall1:
+			texName = "brick"
+		case CellWall2:
+			texName = "stone"
+		case CellWall3:
+			texName = "metal"
+		case CellDoor:
+			texName = "wood"
 		}
+		tex := rc.TexManager.Get(texName)
+
+		if tex != nil && len(tex.Pixels) > 0 {
+			texW := int(tex.Width)
+			texH := int(tex.Height)
+			texX := int(wallX*float64(texW)) % texW
+			if texX < 0 {
+				texX += texW
+			}
+			step := float64(texH) / wallHeight
+			texPos := (float64(drawStart) - fsh/2.0 + wallHeight/2.0) * step
+
+			for y := drawStart; y < drawEnd; y++ {
+				texY := int(texPos) & (texH - 1)
+				texPos += step
+				srcIdx := (texY*texW + texX) * 4
+				dstIdx := (y*sw + x) * 4
+				rc.pixels[dstIdx] = uint8(float64(tex.Pixels[srcIdx]) * shade)
+				rc.pixels[dstIdx+1] = uint8(float64(tex.Pixels[srcIdx+1]) * shade)
+				rc.pixels[dstIdx+2] = uint8(float64(tex.Pixels[srcIdx+2]) * shade)
+				rc.pixels[dstIdx+3] = 255
+			}
+		} else {
+			// Fallback solid color.
+			wc := wallColors[wallType]
+			r := uint8(float64(wc.R) * shade)
+			g := uint8(float64(wc.G) * shade)
+			b := uint8(float64(wc.B) * shade)
+			texStripe := uint8(float64(wallX) * 255.0)
+			r = uint8(float64(r)*0.7 + float64(texStripe)*0.3)
+			g = uint8(float64(g)*0.7 + float64(texStripe)*0.3)
+			b = uint8(float64(b)*0.7 + float64(texStripe)*0.3)
+			for y := drawStart; y < drawEnd; y++ {
+				idx := (y*sw + x) * 4
+				rc.pixels[idx] = r
+				rc.pixels[idx+1] = g
+				rc.pixels[idx+2] = b
+				rc.pixels[idx+3] = 255
+			}
+		}
+	}
+
+	// Draw HUD overlay.
+	rc.drawHUD(sw, sh)
+
+	// Draw console overlay on top of everything.
+	if rc.ConsoleOpen {
+		rc.drawConsole(sw, sh)
+	}
+}
+
+// drawHUD renders crosshair, HP bar and ammo counter.
+func (rc *Raycaster) drawHUD(sw, sh int) {
+	cx := sw / 2
+	cy := sh / 2
+	crossLen := 8
+	crossGap := 2
+	white := [4]uint8{255, 255, 255, 255}
+
+	for x := cx - crossLen; x < cx-crossGap; x++ {
+		if x >= 0 && x < sw {
+			idx := (cy*sw + x) * 4
+			rc.pixels[idx], rc.pixels[idx+1], rc.pixels[idx+2], rc.pixels[idx+3] = white[0], white[1], white[2], white[3]
+		}
+	}
+	for x := cx + crossGap; x < cx+crossLen; x++ {
+		if x >= 0 && x < sw {
+			idx := (cy*sw + x) * 4
+			rc.pixels[idx], rc.pixels[idx+1], rc.pixels[idx+2], rc.pixels[idx+3] = white[0], white[1], white[2], white[3]
+		}
+	}
+	for y := cy - crossLen; y < cy-crossGap; y++ {
+		if y >= 0 && y < sh {
+			idx := (y*sw + cx) * 4
+			rc.pixels[idx], rc.pixels[idx+1], rc.pixels[idx+2], rc.pixels[idx+3] = white[0], white[1], white[2], white[3]
+		}
+	}
+	for y := cy + crossGap; y < cy+crossLen; y++ {
+		if y >= 0 && y < sh {
+			idx := (y*sw + cx) * 4
+			rc.pixels[idx], rc.pixels[idx+1], rc.pixels[idx+2], rc.pixels[idx+3] = white[0], white[1], white[2], white[3]
+		}
+	}
+
+	// HP bar.
+	barX, barY, barW, barH := 10, sh-30, 150, 12
+	borderColor := [4]uint8{60, 60, 60, 255}
+	bgColor := [4]uint8{30, 30, 30, 200}
+	for y := barY - 1; y <= barY+barH; y++ {
+		for x := barX - 1; x <= barX+barW; x++ {
+			if y >= 0 && y < sh && x >= 0 && x < sw {
+				idx := (y*sw + x) * 4
+				rc.pixels[idx], rc.pixels[idx+1], rc.pixels[idx+2], rc.pixels[idx+3] = borderColor[0], borderColor[1], borderColor[2], borderColor[3]
+			}
+		}
+	}
+	for y := barY; y < barY+barH; y++ {
+		for x := barX; x < barX+barW; x++ {
+			idx := (y*sw + x) * 4
+			rc.pixels[idx], rc.pixels[idx+1], rc.pixels[idx+2], rc.pixels[idx+3] = bgColor[0], bgColor[1], bgColor[2], bgColor[3]
+		}
+	}
+	if rc.HUDMaxHP > 0 {
+		ratio := float64(rc.HUDHP) / float64(rc.HUDMaxHP)
+		if ratio < 0 { ratio = 0 }
+		if ratio > 1 { ratio = 1 }
+		fillW := int(float64(barW) * ratio)
+		for y := barY; y < barY+barH; y++ {
+			for x := barX; x < barX+fillW; x++ {
+				frac := float64(x-barX) / float64(barW)
+				r := uint8(255 * (1 - frac))
+				g := uint8(255 * frac)
+				idx := (y*sw + x) * 4
+				rc.pixels[idx], rc.pixels[idx+1], rc.pixels[idx+2] = r, g, 0
+				rc.pixels[idx+3] = 220
+			}
+		}
+	}
+
+	// Ammo counter.
+	ammoX, ammoY, ammoW, ammoH := sw-140, sh-30, 130, 12
+	for y := ammoY - 1; y <= ammoY+ammoH; y++ {
+		for x := ammoX - 1; x <= ammoX+ammoW; x++ {
+			if y >= 0 && y < sh && x >= 0 && x < sw {
+				idx := (y*sw + x) * 4
+				rc.pixels[idx], rc.pixels[idx+1], rc.pixels[idx+2], rc.pixels[idx+3] = borderColor[0], borderColor[1], borderColor[2], borderColor[3]
+			}
+		}
+	}
+	for y := ammoY; y < ammoY+ammoH; y++ {
+		for x := ammoX; x < ammoX+ammoW; x++ {
+			idx := (y*sw + x) * 4
+			rc.pixels[idx], rc.pixels[idx+1], rc.pixels[idx+2], rc.pixels[idx+3] = bgColor[0], bgColor[1], bgColor[2], bgColor[3]
+		}
+	}
+	if rc.HUDAmmoMax > 0 {
+		ratio := float64(rc.HUDAmmo) / float64(rc.HUDAmmoMax)
+		if ratio < 0 { ratio = 0 }
+		if ratio > 1 { ratio = 1 }
+		fillW := int(float64(ammoW) * ratio)
+		for y := ammoY; y < ammoY+ammoH; y++ {
+			for x := ammoX; x < ammoX+fillW; x++ {
+				idx := (y*sw + x) * 4
+				rc.pixels[idx], rc.pixels[idx+1], rc.pixels[idx+2] = uint8(220), uint8(160), uint8(40)
+				rc.pixels[idx+3] = 220
+			}
+		}
+	}
+}
+
+// drawConsole renders the cheat console overlay on the pixel buffer.
+func (rc *Raycaster) drawConsole(sw, sh int) {
+	bg := [4]uint8{0, 0, 0, 200}
+	white := [4]uint8{220, 220, 220, 255}
+	green := [4]uint8{80, 255, 80, 255}
+
+	startY := sh / 2
+	for y := startY; y < sh; y++ {
+		for x := 0; x < sw; x++ {
+			idx := (y*sw + x) * 4
+			rc.pixels[idx] = bg[0]
+			rc.pixels[idx+1] = bg[1]
+			rc.pixels[idx+2] = bg[2]
+			rc.pixels[idx+3] = bg[3]
+		}
+	}
+
+	prompt := "> " + rc.ConsoleInput + "_"
+	DrawConsoleString(rc.pixels, sw, 8, sh-14, prompt, green)
+
+	visible := (sh/2 - 20) / FontH
+	if visible > len(rc.ConsoleHistory) {
+		visible = len(rc.ConsoleHistory)
+	}
+	for i := 0; i < visible; i++ {
+		line := rc.ConsoleHistory[len(rc.ConsoleHistory)-visible+i]
+		DrawConsoleString(rc.pixels, sw, 8, sh-14-(visible-i)*FontH, line, white)
 	}
 }
 
@@ -493,6 +678,7 @@ func (rc *Raycaster) drawSprites(sprites []*Sprite) {
 	}
 
 	rc.spriteProg.Use()
+	rc.spriteProg.SetUniform1i("uFlipY", 0)
 	gl.Enable(gl.BLEND)
 	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 	gl.Disable(gl.DEPTH_TEST)
@@ -553,6 +739,8 @@ func (rc *Raycaster) drawSprites(sprites []*Sprite) {
 			rc.spriteProg.SetUniform2f("uSpriteSize", 1.0, float32((drawEndY-drawStartY)/2.0))
 			rc.spriteProg.SetUniform1f("uAlpha", s.Alpha)
 			rc.spriteProg.SetUniform1f("uShade", shade)
+			rc.spriteProg.SetUniform1f("uTexX", float32(texX))
+			rc.spriteProg.SetUniform1i("uUseFixedTexX", 1)
 
 			gl.ActiveTexture(gl.TEXTURE0)
 			gl.BindTexture(gl.TEXTURE_2D, texID)
@@ -563,6 +751,45 @@ func (rc *Raycaster) drawSprites(sprites []*Sprite) {
 		}
 	}
 
+	gl.BindVertexArray(0)
+	gl.Disable(gl.BLEND)
+	gl.Enable(gl.DEPTH_TEST)
+}
+
+// DrawHUDWeapon renders the player's animated first-person sprite over the HUD.
+func (rc *Raycaster) DrawHUDWeapon() {
+	if rc.HUDWeaponTex == "" {
+		return
+	}
+	tex := rc.TexManager.Get(rc.HUDWeaponTex)
+	if tex == nil {
+		return
+	}
+
+	sw := float32(rc.screenW)
+	sh := float32(rc.screenH)
+	height := sh * 0.42
+	width := height * (float32(tex.Width) / float32(tex.Height))
+	x := sw*0.60 - width*0.25
+	y := sh*0.58 + float32(math.Sin(rc.HUDWeaponBob))*8.0
+
+	rc.spriteProg.Use()
+	rc.spriteProg.SetUniform1i("uFlipY", 1)
+	gl.Enable(gl.BLEND)
+	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+	gl.Disable(gl.DEPTH_TEST)
+	rc.spriteProg.SetUniform2f("uScreenSize", sw, sh)
+	rc.spriteProg.SetUniform2f("uSpritePos", x, y)
+	rc.spriteProg.SetUniform2f("uSpriteSize", width, height)
+	rc.spriteProg.SetUniform1f("uAlpha", 1.0)
+	rc.spriteProg.SetUniform1f("uShade", 1.0)
+	rc.spriteProg.SetUniform1f("uTexX", 0.0)
+	rc.spriteProg.SetUniform1i("uUseFixedTexX", 0)
+	gl.ActiveTexture(gl.TEXTURE0)
+	gl.BindTexture(gl.TEXTURE_2D, tex.ID)
+	rc.spriteProg.SetUniform1i("uTexture", 0)
+	gl.BindVertexArray(rc.wallVAO)
+	gl.DrawArrays(gl.TRIANGLES, 0, 6)
 	gl.BindVertexArray(0)
 	gl.Disable(gl.BLEND)
 	gl.Enable(gl.DEPTH_TEST)

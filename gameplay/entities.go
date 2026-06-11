@@ -351,18 +351,25 @@ func DefaultBehaviorFlags(st SubType) BehaviorFlags {
 
 // ParseBehaviorFlags reads behavior properties from a child node.
 func ParseBehaviorFlags(child *parser.AIENode, bf *BehaviorFlags) {
+	deathType := bf.DeathType
+	deathPriority := 0
 	for k, v := range child.Properties {
 		switch k {
 		case "COLLAPSE":
 			if v == "yes" || strings.HasPrefix(v, "yes") {
-				bf.DeathType = DeathCollapse
+				if deathPriority < 1 {
+					deathType = DeathCollapse
+					deathPriority = 1
+				}
 			}
 		case "SHATTER":
-			bf.DeathType = DeathShatter
+			deathType = DeathShatter
+			deathPriority = 2
 			bf.ShatterParts = parseParamInt(v, "parts", 5)
 		case "DISSOLVE":
 			if v == "yes" || strings.HasPrefix(v, "yes") {
-				bf.DeathType = DeathDissolve
+				deathType = DeathDissolve
+				deathPriority = 2
 			}
 		case "EARTHQUAKE":
 			bf.Earthquake = v == "yes" || strings.HasPrefix(v, "yes")
@@ -397,6 +404,7 @@ func ParseBehaviorFlags(child *parser.AIENode, bf *BehaviorFlags) {
 			bf.FireBreath = v == "yes" || strings.HasPrefix(v, "yes")
 		}
 	}
+	bf.DeathType = deathType
 }
 
 // --- Entity Definition ---

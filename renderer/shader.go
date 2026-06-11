@@ -168,13 +168,17 @@ out vec2 TexCoord;
 uniform vec2 uScreenSize;
 uniform vec2 uSpritePos;   // screen-space center
 uniform vec2 uSpriteSize;  // width, height
+uniform float uTexX;
+uniform int uUseFixedTexX;
+uniform int uFlipY;
 
 void main() {
     vec2 pos = uSpritePos + aPos * uSpriteSize;
     float px = (pos.x / uScreenSize.x) * 2.0 - 1.0;
     float py = 1.0 - (pos.y / uScreenSize.y) * 2.0; // flip screen Y to NDC
     gl_Position = vec4(px, py, 0.0, 1.0);
-    TexCoord = aTexCoord;
+    float ty = uFlipY == 1 ? (1.0 - aTexCoord.y) : aTexCoord.y;
+    TexCoord = vec2(uUseFixedTexX == 1 ? uTexX : aTexCoord.x, ty);
 }
 ` + "\x00"
 

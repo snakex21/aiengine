@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AIEngine Editor</title>
+  <style>{{.Style}}</style>
+</head>
+<body>
+  <div id="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="mark">AI</div>
+        <div>
+          <h1>AIEngine</h1>
+          <p>Go WebView Editor</p>
+        </div>
+      </div>
+      <button class="tab active" data-tab="project">Project</button>
+      <button class="tab" data-tab="assets">Asset Viewer</button>
+      <button class="tab" data-tab="cutter">Sprite Cutter</button>
+      <button class="tab" data-tab="map">Map Editor</button>
+      <button class="tab" data-tab="tester">Level Tester</button>
+      <button class="tab" data-tab="agent">Agent Panel</button>
+      <button class="tab" data-tab="sandbox">Sandbox</button>
+      <div class="status" id="status">Gotowe</div>
+    </aside>
+
+    <main class="main">
+      <section class="panel active" id="project">
+        <div class="panel-head">
+          <div><h2>Project Launcher</h2><p>Wybierz projekt z katalogu projects/, sprawdź manifest i odpal grę.</p></div>
+          <div class="head-actions">
+            <button id="projectPlayBtn" class="play-btn">Play Project</button>
+            <button id="openFolderBtn" class="ghost-btn">Open Folder</button>
+          </div>
+        </div>
+        <div class="path-row"><select id="projectSelect"></select><input id="projectDir" placeholder="Ścieżka projektu" /></div>
+        <div class="project-layout">
+          <div class="manifest-card">
+            <h3>Manifest</h3>
+            <div id="projectInfo" class="kv"></div>
+          </div>
+          <div class="manifest-card">
+            <h3>Structure</h3>
+            <pre class="tree">projects/&lt;name&gt;/
+├─ manifest.aie
+├─ config.aie
+├─ assets/
+├─ entities/
+├─ maps/
+├─ scripts/
+└─ styles/</pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="assets">
+        <div class="panel-head">
+          <div><h2>Asset Viewer</h2><p>Przegląd plików projektu bez Tauri/Vite/localhost.</p></div>
+          <div class="head-actions">
+            <button id="playProjectBtn" class="play-btn">Play Project</button>
+            <button id="scanBtn">Scan</button>
+          </div>
+        </div>
+        <div class="split">
+          <div class="list" id="assetList"></div>
+          <div class="preview" id="assetPreview">Wybierz plik z listy.</div>
+        </div>
+      </section>
+
+      <section class="panel" id="cutter">
+        <h2>Sprite Cutter</h2>
+        <p>Prosty kalkulator siatki sprite sheet. Pełne cięcie PNG dodamy w następnym kroku.</p>
+        <div class="form-grid">
+          <label>Frame width <input id="frameW" type="number" value="64" /></label>
+          <label>Frame height <input id="frameH" type="number" value="64" /></label>
+          <label>Columns <input id="cols" type="number" value="4" /></label>
+          <label>Rows <input id="rows" type="number" value="2" /></label>
+        </div>
+        <button id="calcFrames">Policz klatki</button>
+        <pre id="framesOut"></pre>
+      </section>
+
+      <section class="panel" id="map">
+        <div class="panel-head">
+          <div><h2>Map Editor</h2><p>Ładuj istniejące mapy z maps/*.aie albo twórz nowe.</p></div>
+          <div class="head-actions">
+            <button id="loadMapBtn" class="ghost-btn">Load</button>
+            <button id="exportMap">Save .aie</button>
+          </div>
+        </div>
+        <div class="path-row"><select id="mapSelect"></select><input id="mapName" value="untitled" /></div>
+        <div class="map-tools">
+          <label>Width <input id="mapWidth" type="number" min="1" max="80" value="10" /></label>
+          <label>Height <input id="mapHeight" type="number" min="1" max="80" value="10" /></label>
+          <button id="resizeMapBtn" class="ghost-btn">Resize</button>
+          <button id="fillMapBtn" class="ghost-btn">Fill selected</button>
+          <button id="clearMapBtn" class="ghost-btn">Clear</button>
+        </div>
+        <div class="tiles" id="tiles"></div>
+        <div class="map-layout">
+          <div class="grid" id="mapGrid"></div>
+          <div>
+            <h3>Raw map file</h3>
+            <textarea id="mapRaw" placeholder="Tutaj pojawi się pełny plik mapy po załadowaniu..."></textarea>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="tester">
+        <h2>Level Tester</h2>
+        <p>Uruchamia główny silnik z katalogu projektu.</p>
+        <button id="launchEngine">Uruchom aiengine.exe</button>
+        <pre id="testerOut"></pre>
+      </section>
+
+      <section class="panel" id="agent">
+        <h2>Agent Panel</h2>
+        <p>Miejsce na human-loop / pytania agenta. Na razie lokalny notatnik.</p>
+        <textarea id="agentNotes" placeholder="Notatki dla agenta..."></textarea>
+      </section>
+
+      <section class="panel" id="sandbox">
+        <h2>Sandbox</h2>
+        <p>Szybki edytor tekstu dla plików .aie/.lua/.js/.css.</p>
+        <div class="path-row"><input id="sandboxPath" placeholder="np. manifest.aie albo config.aie" /><button id="loadText">Load</button><button id="saveText">Save</button></div>
+        <textarea id="sandboxText"></textarea>
+      </section>
+    </main>
+  </div>
+  <script>{{.Script}}</script>
+</body>
+</html>

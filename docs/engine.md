@@ -1379,4 +1379,8 @@ Wszystko wbudowane w exe
 4. go build -o aiengine.exe
 5. Gotowe
 
-
+## Filozofia AIEngine
+Każda gra zrobiona na AIEngine jest z definicji 
+otwarta i moddable. Nie ma możliwości zamknięcia.
+Assety zawsze czytelne dla człowieka i AI.
+MIT dla ludzkości.

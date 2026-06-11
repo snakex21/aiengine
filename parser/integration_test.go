@@ -4,11 +4,17 @@ package parser
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 )
 
+func demoPath(parts ...string) string {
+	all := append([]string{"..", "projects", "demo"}, parts...)
+	return filepath.Join(all...)
+}
+
 func TestParseDemoGrunt(t *testing.T) {
-	f, err := os.Open("../demo/entities/grunt.aie")
+	f, err := os.Open(demoPath("entities", "grunt.aie"))
 	if err != nil {
 		t.Skipf("demo file not found: %v", err)
 		return
@@ -37,7 +43,7 @@ func TestParseDemoGrunt(t *testing.T) {
 }
 
 func TestParseDemoBossKaiju(t *testing.T) {
-	f, err := os.Open("../demo/entities/boss_kaiju.aie")
+	f, err := os.Open(demoPath("entities", "boss_kaiju.aie"))
 	if err != nil {
 		t.Skipf("demo file not found: %v", err)
 		return
@@ -69,7 +75,7 @@ func TestParseDemoBossKaiju(t *testing.T) {
 }
 
 func TestParseDemoLevel1Map(t *testing.T) {
-	f, err := os.Open("../demo/maps/level1.aie")
+	f, err := os.Open(demoPath("maps", "level1.aie"))
 	if err != nil {
 		t.Skipf("demo file not found: %v", err)
 		return
@@ -113,7 +119,7 @@ func TestParseDemoLevel1Map(t *testing.T) {
 }
 
 func TestParseDemoConfig(t *testing.T) {
-	cfg, err := ParseConfigFile("../demo/config.aie")
+	cfg, err := ParseConfigFile(demoPath("config.aie"))
 	if err != nil {
 		t.Skipf("demo config not found: %v", err)
 		return
@@ -133,7 +139,7 @@ func TestParseDemoConfig(t *testing.T) {
 }
 
 func TestParseDemoCSSGrunt(t *testing.T) {
-	f, err := os.Open("../demo/styles/grunt.css")
+	f, err := os.Open(demoPath("styles", "grunt.css"))
 	if err != nil {
 		t.Skipf("demo file not found: %v", err)
 		return
@@ -155,7 +161,7 @@ func TestParseDemoCSSGrunt(t *testing.T) {
 }
 
 func TestParseDemoCSSLevel1(t *testing.T) {
-	f, err := os.Open("../demo/styles/level1.css")
+	f, err := os.Open(demoPath("styles", "level1.css"))
 	if err != nil {
 		t.Skipf("demo file not found: %v", err)
 		return

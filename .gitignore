@@ -1,6 +1,12 @@
 # Binary
 aiengine.exe
 *.exe
+bin/*.exe
+bin/*.dll
+
+# Local/generated artifacts
+scratch/
+.playwright-mcp/
 
 # Go
 *.test

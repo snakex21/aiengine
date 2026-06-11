@@ -9,7 +9,11 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"os"
+	"path/filepath"
 	"runtime"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/go-gl/gl/v4.1-core/gl"
@@ -19,11 +23,16 @@ import (
 	"aiengine/parser"
 	"aiengine/renderer"
 	"aiengine/scripting"
+	"aiengine/systems"
 )
 
 const (
-	WindowTitle = "AIEngine"
+	WindowTitle        = "AIEngine"
+	DefaultProjectDir = "projects/demo"
 )
+
+var activeProjectDir = DefaultProjectDir
+var activeManifest = parser.DefaultManifest()
 
 // App holds the top-level engine state for the main loop.
 type App struct {
@@ -44,11 +53,20 @@ type App struct {
 	sprites    []*renderer.Sprite
 	player     *renderer.PlayerState
 	effects    *renderer.EffectsConfig
+	enemies    []*DemoEnemy
+	playerAnim DemoPlayerAnim
 
 	// Scripting.
 	scriptEngine *scripting.Engine
 	luaBridge    *scripting.LuaBridge
 	jsBridge     *scripting.JSBridge
+
+	// Audio.
+	audioSys *systems.AudioSystem
+
+	// Console / cheats.
+	console   *systems.ConsoleState
+	humanLoop *systems.HumanLoop
 
 	// Config.
 	config *parser.Config
@@ -59,8 +77,76 @@ type App struct {
 	mouseInit  bool
 }
 
+type DemoEnemy struct {
+	ID          string
+	Sprite      *renderer.Sprite
+	HP          float64
+	MaxHP       float64
+	Speed       float64
+	Damage      float64
+	AttackRange float64
+	AttackTimer float64
+	AnimTimer   float64
+	State       string
+	Alive       bool
+}
+
+type DemoPlayerAnim struct {
+	IdleFrames   []string
+	ShootFrames  []string
+	ReloadFrames []string
+	MoveTimer    float64
+	ShootTimer   float64
+	ReloadTimer  float64
+	Bob          float64
+}
+
 func main() {
+	// --- CLI flags (no game loop) ---
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "--build":
+			runBuild()
+			return
+		case "--level":
+			// Launch specific level — same as normal game, just sets map.
+			// Fall through to normal game launch.
+			runtime.LockOSThread()
+			useExecutableDirectoryWhenNeeded(false)
+			app := &App{}
+			if err := app.init(); err != nil {
+				log.Fatalf("AIEngine initialization failed: %v", err)
+			}
+			defer app.shutdown()
+			if len(os.Args) > 2 {
+				log.Printf("Level requested: %s (auto-load not yet implemented)", os.Args[2])
+			}
+			app.run()
+			return
+		case "--import":
+			runImport()
+			return
+		case "--project":
+			if len(os.Args) < 3 {
+				log.Fatal("usage: aiengine.exe --project <project-name-or-path>")
+			}
+			activeProjectDir = normalizeProjectArg(os.Args[2])
+		case "--help", "-h":
+			fmt.Println("AIEngine")
+			fmt.Println("  aiengine.exe            run game + cheats")
+			fmt.Println("  aiengine.exe --project <name|path>  run selected project")
+			fmt.Println("  aiengine.exe --build    pack project to .aiepack")
+			fmt.Println("  aiengine.exe --import <.aiepack>  unpack project")
+			fmt.Println("  aiengine.exe --editor   launch editor (TBD)")
+			return
+		default:
+			fmt.Fprintf(os.Stderr, "unknown flag: %s (use --help)\n", os.Args[1])
+			os.Exit(1)
+		}
+	}
+
 	runtime.LockOSThread()
+	useExecutableDirectoryWhenNeeded(true)
 
 	app := &App{}
 
@@ -72,10 +158,159 @@ func main() {
 	app.run()
 }
 
+func runBuild() {
+	dir, err := os.Getwd()
+	if err != nil {
+		log.Fatalf("getwd: %v", err)
+	}
+	name := filepath.Base(dir)
+	output := name + ".aiepack"
+
+	if len(os.Args) > 2 {
+		output = os.Args[2]
+	}
+
+	fmt.Printf("Packing project '%s' → %s ...\n", name, output)
+	if err := systems.PackProject(dir, name, output); err != nil {
+		log.Fatalf("build failed: %v", err)
+	}
+	fmt.Println("Done.")
+}
+
+func runImport() {
+	packPath := ""
+	if len(os.Args) > 2 {
+		packPath = os.Args[2]
+	} else {
+		// Try to find the first .aiepack in current directory.
+		entries, _ := os.ReadDir(".")
+		for _, e := range entries {
+			if !e.IsDir() && filepath.Ext(e.Name()) == ".aiepack" {
+				packPath = e.Name()
+				break
+			}
+		}
+	}
+
+	if packPath == "" {
+		log.Fatal("usage: aiengine.exe --import <file.aiepack>")
+	}
+
+	dest := filepath.Base(packPath)
+	dest = dest[:len(dest)-len(filepath.Ext(dest))] // strip .aiepack
+
+	fmt.Printf("Importing %s → %s/ ...\n", packPath, dest)
+	if err := systems.ImportProject(packPath, dest); err != nil {
+		log.Fatalf("import failed: %v", err)
+	}
+	fmt.Println("Done.")
+}
+
+func useExecutableDirectoryWhenNeeded(allowProjectPicker bool) {
+	if envProject := strings.TrimSpace(os.Getenv("AIENGINE_PROJECT")); envProject != "" {
+		activeProjectDir = filepath.Clean(envProject)
+	}
+	useProjectBaseDirectoryWhenNeeded()
+	if strings.TrimSpace(os.Getenv("AIENGINE_PROJECT")) == "" && allowProjectPicker && activeProjectDir == DefaultProjectDir {
+		activeProjectDir = chooseProjectDir()
+	}
+	if _, err := os.Stat(projectPath("config.aie")); err == nil {
+		return
+	}
+	useProjectBaseDirectoryWhenNeeded()
+}
+
+func useProjectBaseDirectoryWhenNeeded() {
+	if _, err := os.Stat(projectPath("config.aie")); err == nil {
+		return
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	dir := filepath.Dir(exe)
+	candidates := []string{dir, filepath.Dir(dir)}
+	for _, base := range candidates {
+		if _, err := os.Stat(filepath.Join(base, activeProjectDir, "config.aie")); err == nil {
+			if chdirErr := os.Chdir(base); chdirErr != nil {
+				log.Printf("Warning: could not switch to project base directory %s: %v", base, chdirErr)
+			}
+			return
+		}
+	}
+}
+
+func normalizeProjectArg(arg string) string {
+	arg = filepath.Clean(strings.TrimSpace(arg))
+	if arg == "." || arg == "" {
+		return DefaultProjectDir
+	}
+	if filepath.IsAbs(arg) || strings.Contains(arg, string(filepath.Separator)) || strings.Contains(arg, "/") {
+		return arg
+	}
+	return filepath.Join("projects", arg)
+}
+
+func chooseProjectDir() string {
+	projects := listProjects("projects")
+	if len(projects) == 0 {
+		return DefaultProjectDir
+	}
+	if len(projects) == 1 {
+		return projects[0]
+	}
+
+	fmt.Println("Available AIEngine projects:")
+	for i, p := range projects {
+		fmt.Printf("  %d) %s\n", i+1, filepath.Base(p))
+	}
+	fmt.Printf("Select project [1-%d] (Enter = 1): ", len(projects))
+	var choice string
+	if _, err := fmt.Scanln(&choice); err == nil {
+		var index int
+		if _, err := fmt.Sscanf(choice, "%d", &index); err == nil && index >= 1 && index <= len(projects) {
+			return projects[index-1]
+		}
+	}
+	return projects[0]
+}
+
+func listProjects(root string) []string {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil
+	}
+	projects := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		path := filepath.Join(root, entry.Name())
+		if _, err := os.Stat(filepath.Join(path, "config.aie")); err == nil {
+			projects = append(projects, path)
+		}
+	}
+	sort.Strings(projects)
+	return projects
+}
+
+func projectPath(parts ...string) string {
+	all := append([]string{activeProjectDir}, parts...)
+	return filepath.Join(all...)
+}
+
 // init sets up GLFW, OpenGL, input, renderer, scripting, and test content.
 func (app *App) init() error {
+	manifest, err := parser.ParseManifestFile(projectPath("manifest.aie"))
+	if err != nil {
+		log.Printf("Warning: could not load manifest.aie: %v (using defaults)", err)
+		manifest = parser.DefaultManifest()
+	}
+	activeManifest = manifest
+	log.Printf("Project: %s (%s)", activeManifest.Project, activeProjectDir)
+
 	// --- Load config FIRST ---
-	cfg, err := parser.ParseConfigFile("demo/config.aie")
+	cfg, err := parser.ParseConfigFile(projectPath(activeManifest.Config))
 	if err != nil {
 		log.Printf("Warning: could not load config.aie: %v (using defaults)", err)
 		cfg = &parser.Config{}
@@ -137,7 +372,7 @@ func (app *App) init() error {
 	if cfg != nil && len(cfg.Bindings) > 0 {
 		app.inputManager.SetDefaults() // ensure all defaults exist
 		// Override with config bindings via re-loading (inputManager reads config.aie).
-		app.inputManager.LoadConfig("demo/config.aie")
+		app.inputManager.LoadConfig(projectPath(activeManifest.Config))
 	} else {
 		app.inputManager.SetDefaults()
 	}
@@ -146,6 +381,51 @@ func (app *App) init() error {
 	app.texManager = renderer.NewTextureManager()
 	if err := app.texManager.GenerateDefaultTextures(); err != nil {
 		return fmt.Errorf("texture generation: %w", err)
+	}
+	app.loadDemoSpriteSheets()
+
+	// --- Audio system (register sounds on main thread, init backend in goroutine) ---
+	app.audioSys = systems.NewAudioSystem()
+	app.audioSys.SoundPaths = []string{projectPath("sounds"), activeProjectDir, "."}
+	app.audioSys.RegisterSoundDef(systems.SoundDef{
+		Name: "gunshot", Waveform: systems.WaveImpact,
+		Frequency: 800, Decay: 0.1, Noise: 0.3, Volume: 0.5,
+	})
+	app.audioSys.RegisterSoundDef(systems.SoundDef{
+		Name: "footstep", Waveform: systems.WaveClick,
+		Frequency: 300, Decay: 0.05, Volume: 0.3,
+	})
+	go func() {
+		if err := app.audioSys.InitBackend(); err != nil {
+			log.Printf("Audio backend init failed (no sound): %v", err)
+			return
+		}
+		log.Println("Audio system ready")
+	}()
+
+	// --- Console / Cheats ---
+	app.console = systems.NewConsoleState()
+	app.console.OnCommand = app.consoleCommand
+
+	// --- Human‑in‑the‑loop ---
+	app.humanLoop = systems.NewHumanLoop()
+	app.humanLoop.OnAsk = func(question string, options []string) {
+		msg := fmt.Sprintf("[AGENT] %s", question)
+		if len(options) > 0 {
+			msg += fmt.Sprintf("  [%s]", strings.Join(options, "/"))
+		}
+		app.console.History = append(app.console.History, msg)
+		// Auto-open console so the player sees the question immediately.
+		if !app.console.Open {
+			app.console.Open = true
+		}
+		log.Printf("[HumanLoop] %s", msg)
+	}
+	if err := app.humanLoop.Start(9876); err != nil {
+		log.Printf("Warning: HumanLoop on :9876 failed: %v — trying :9877", err)
+		if err2 := app.humanLoop.Start(9877); err2 != nil {
+			log.Printf("Warning: HumanLoop failed to start: %v (agent bridge unavailable)", err2)
+		}
 	}
 
 	// --- Map & Player ---
@@ -159,26 +439,32 @@ func (app *App) init() error {
 	}
 
 	// --- Sprites & Effects ---
-	app.sprites = renderer.CreateDefaultSprites()
+	app.sprites = []*renderer.Sprite{
+		{X: 4.5, Y: 3.5, Z: 0, Scale: 0.7, TexName: "sprite_prop", Alpha: 1.0, Active: true, EntityID: "prop1"},
+		{X: 5.5, Y: 3.5, Z: 0, Scale: 0.7, TexName: "sprite_prop", Alpha: 1.0, Active: true, EntityID: "prop2"},
+	}
+	app.spawnDemoEnemies()
 	app.effects = renderer.DefaultEffects()
 
 	// --- Scripting Engine ---
 	app.scriptEngine = scripting.NewEngine()
 	app.scriptEngine.Effects = app.effects
+	app.scriptEngine.AudioPlayer = app.audioSys // wire audio to scripts
+	for _, enemy := range app.enemies {
+		app.scriptEngine.Entities[enemy.ID] = &scripting.EntityState{ID: enemy.ID, Type: "grunt", HP: enemy.HP, MaxHP: enemy.MaxHP, X: enemy.Sprite.X, Y: enemy.Sprite.Y, Z: enemy.Sprite.Z, Alive: true}
+	}
 
 	// Lua bridge.
 	app.luaBridge = scripting.NewLuaBridge(app.scriptEngine)
 	// Try loading demo Lua scripts.
-	if err := app.luaBridge.DoFile("demo/scripts/level1.lua"); err != nil {
+	if err := app.luaBridge.DoFile(projectPath(activeManifest.MainScript)); err != nil {
 		log.Printf("Lua level1.lua: %v", err)
 	}
-	if err := app.luaBridge.DoFile("demo/scripts/boss_kaiju.lua"); err != nil {
-		log.Printf("Lua boss_kaiju.lua: %v", err)
-	}
+	// Boss scripts are intentionally not loaded in this demo variant: one living enemy type only.
 
 	// JS bridge.
 	app.jsBridge = scripting.NewJSBridge(app.scriptEngine)
-	if _, err := app.jsBridge.RunFile("demo/scripts/hud.js"); err != nil {
+	if _, err := app.jsBridge.RunFile(projectPath(activeManifest.HUDScript)); err != nil {
 		log.Printf("JS hud.js: %v", err)
 	}
 
@@ -187,6 +473,7 @@ func (app *App) init() error {
 
 	// --- GLFW callbacks ---
 	window.SetKeyCallback(app.keyCallback)
+	window.SetCharCallback(app.charCallback)
 	window.SetMouseButtonCallback(app.mouseButtonCallback)
 	window.SetSizeCallback(app.sizeCallback)
 	window.SetCloseCallback(func(w *glfw.Window) {
@@ -214,6 +501,90 @@ func createTestMap() *renderer.MapData {
 		{1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
 	}
 	return renderer.NewMapData(grid)
+}
+
+func (app *App) loadDemoSpriteSheets() {
+	app.playerAnim.IdleFrames = []string{"player_idle_0", "player_idle_1", "player_idle_2", "player_idle_3", "player_idle_4"}
+	app.playerAnim.ShootFrames = []string{"player_shoot_0", "player_shoot_1", "player_shoot_2", "player_shoot_3"}
+	app.playerAnim.ReloadFrames = []string{"player_reload_0", "player_reload_1", "player_reload_2", "player_reload_3", "player_reload_4", "player_reload_5", "player_reload_6"}
+	if !app.loadPlayerAnimationFiles(projectPath(activeManifest.PlayerAssets)) {
+		if err := app.texManager.LoadWeaponHandAtlas(projectPath(activeManifest.PlayerAtlas)); err != nil {
+			log.Printf("Warning: could not load gracz.png spritesheet: %v", err)
+			app.playerAnim.IdleFrames = []string{"sprite_default"}
+			app.playerAnim.ShootFrames = []string{"sprite_default"}
+			app.playerAnim.ReloadFrames = []string{"sprite_default"}
+		}
+	}
+	if err := app.texManager.LoadSpriteSheet("enemy", projectPath(activeManifest.EnemyAtlas), 3, 2); err != nil {
+		log.Printf("Warning: could not load przeciwnik.png spritesheet: %v", err)
+	}
+}
+
+func (app *App) loadPlayerAnimationFiles(dir string) bool {
+	frames := map[string][]string{
+		"player_idle":   app.playerAnim.IdleFrames,
+		"player_shoot":  app.playerAnim.ShootFrames,
+		"player_reload": app.playerAnim.ReloadFrames,
+	}
+	filePrefixes := map[string]string{
+		"player_idle":   "idle",
+		"player_shoot":  "shoot",
+		"player_reload": "reload",
+	}
+
+	for texPrefix, frameNames := range frames {
+		filePrefix := filePrefixes[texPrefix]
+		for i, texName := range frameNames {
+			path := filepath.Join(dir, fmt.Sprintf("%s_%d.png", filePrefix, i))
+			if _, err := os.Stat(path); err != nil {
+				return false
+			}
+			if _, err := app.texManager.LoadFromFile(texName, path); err != nil {
+				log.Printf("Warning: could not load player animation frame %s: %v", path, err)
+				return false
+			}
+		}
+	}
+
+	log.Printf("Loaded player animation frames from %s", dir)
+	return true
+}
+
+func (app *App) enemyFrame(index int) string {
+	name := fmt.Sprintf("enemy_%d", index)
+	if app.texManager != nil && app.texManager.Get(name) != nil {
+		return name
+	}
+	return "sprite_enemy"
+}
+
+func (app *App) spawnDemoEnemies() {
+	spawns := []struct {
+		id string
+		x  float64
+		y  float64
+	}{
+		{"enemy1", 1.5, 3.5},
+		{"enemy2", 7.5, 2.5},
+		{"enemy3", 7.5, 7.5},
+	}
+
+	for _, spawn := range spawns {
+		sprite := &renderer.Sprite{X: spawn.x, Y: spawn.y, Z: 0, Scale: 0.85, TexName: app.enemyFrame(0), Alpha: 1.0, Active: true, EntityID: spawn.id}
+		enemy := &DemoEnemy{
+			ID:          spawn.id,
+			Sprite:      sprite,
+			HP:          50,
+			MaxHP:       50,
+			Speed:       1.15,
+			Damage:      8,
+			AttackRange: 0.85,
+			State:       "idle",
+			Alive:       true,
+		}
+		app.enemies = append(app.enemies, enemy)
+		app.sprites = append(app.sprites, sprite)
+	}
 }
 
 // run executes the main game loop.
@@ -252,21 +623,39 @@ func (app *App) calculateDeltaTime() {
 }
 
 func (app *App) handleInput() {
+	// Fullscreen works always.
 	if app.inputManager.IsJustPressed("fullscreen") {
 		app.toggleFullscreen()
 	}
-	// ESC emits "onPause" event — game (JS/Lua) decides what to do.
+
+	// Pause toggle works always.
 	if app.inputManager.IsJustPressed("pause") {
 		app.paused = !app.paused
 		if app.paused {
 			app.window.SetInputMode(glfw.CursorMode, glfw.CursorNormal)
 		} else {
 			app.window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
-			// Reset mouse delta tracking to avoid jump on resume.
 			app.mouseInit = false
 		}
 		app.scriptEngine.Emit("onPause", app.paused)
 		log.Printf("[Engine] Pause toggled: %v", app.paused)
+	}
+
+	// When paused, ignore all gameplay input.
+	if app.paused {
+		return
+	}
+
+	// Shoot triggers procedural gunshot sound.
+	if app.inputManager.IsJustPressed("shoot") {
+		app.scriptEngine.PlaySound("gunshot")
+		app.playerAnim.ShootTimer = 0.18
+		app.shootDemoEnemy()
+	}
+	// Reload triggers footstep (test).
+	if app.inputManager.IsJustPressed("reload") {
+		app.scriptEngine.PlaySound("footstep")
+		app.playerAnim.ReloadTimer = 0.75
 	}
 }
 
@@ -289,6 +678,11 @@ func (app *App) toggleFullscreen() {
 
 // update handles per-frame game logic: player movement, sprite updates.
 func (app *App) update(dt float64) {
+	// Pause gameplay while console is open.
+	if app.console != nil && app.console.Open {
+		return
+	}
+
 	speed := app.player.MoveSpeed * dt
 
 	moveX := 0.0
@@ -311,13 +705,14 @@ func (app *App) update(dt float64) {
 		moveY += math.Cos(app.player.Angle) * speed
 	}
 
-	// Predictive collision per-axis (wall sliding).
+	// Predictive collision per-axis (wall sliding). Noclip skips walls.
+	noclip := app.console != nil && app.console.CheatEnabled(systems.CheatNoclip)
 	newX := app.player.X + moveX
-	if !app.isWallAt(newX, app.player.Y) {
+	if noclip || !app.isWallAt(newX, app.player.Y) {
 		app.player.X = newX
 	}
 	newY := app.player.Y + moveY
-	if !app.isWallAt(app.player.X, newY) {
+	if noclip || !app.isWallAt(app.player.X, newY) {
 		app.player.Y = newY
 	}
 
@@ -335,6 +730,203 @@ func (app *App) update(dt float64) {
 	}
 	app.prevMouseX = cx
 	app.prevMouseY = cy
+	app.scriptEngine.SetPlayerPosition(app.player.X, app.player.Y, 0)
+
+	moving := moveX != 0 || moveY != 0
+	app.updatePlayerAnimation(dt, moving)
+	app.updateDemoEnemies(dt)
+}
+
+func (app *App) updatePlayerAnimation(dt float64, moving bool) {
+	if len(app.playerAnim.IdleFrames) == 0 {
+		return
+	}
+	if app.playerAnim.ReloadTimer > 0 {
+		app.playerAnim.ReloadTimer -= dt
+		frames := app.playerAnim.ReloadFrames
+		idx := int((0.75 - app.playerAnim.ReloadTimer) / 0.10)
+		if idx < 0 {
+			idx = 0
+		}
+		if idx >= len(frames) {
+			idx = len(frames) - 1
+		}
+		app.raycaster.HUDWeaponTex = frames[idx]
+		app.raycaster.HUDWeaponBob = 0
+		return
+	}
+	if app.playerAnim.ShootTimer > 0 {
+		app.playerAnim.ShootTimer -= dt
+		frames := app.playerAnim.ShootFrames
+		idx := int((0.18 - app.playerAnim.ShootTimer) / 0.045)
+		if idx < 0 {
+			idx = 0
+		}
+		if idx >= len(frames) {
+			idx = len(frames) - 1
+		}
+		app.raycaster.HUDWeaponTex = frames[idx]
+		app.raycaster.HUDWeaponBob = app.playerAnim.Bob
+		return
+	}
+	if moving {
+		app.playerAnim.MoveTimer += dt
+		app.playerAnim.Bob += dt * 12
+		idx := int(app.playerAnim.MoveTimer/0.12) % len(app.playerAnim.IdleFrames)
+		app.raycaster.HUDWeaponTex = app.playerAnim.IdleFrames[idx]
+	} else {
+		app.playerAnim.Bob = 0
+		app.raycaster.HUDWeaponTex = app.playerAnim.IdleFrames[0]
+	}
+	app.raycaster.HUDWeaponBob = app.playerAnim.Bob
+}
+
+func (app *App) updateDemoEnemies(dt float64) {
+	for _, enemy := range app.enemies {
+		if !enemy.Alive || enemy.Sprite == nil || !enemy.Sprite.Active {
+			continue
+		}
+		if enemy.Sprite.Alpha < 1.0 {
+			enemy.Sprite.Alpha += float32(dt * 2.5)
+			if enemy.Sprite.Alpha > 1.0 {
+				enemy.Sprite.Alpha = 1.0
+			}
+		}
+		dx := app.player.X - enemy.Sprite.X
+		dy := app.player.Y - enemy.Sprite.Y
+		dist := math.Sqrt(dx*dx + dy*dy)
+		enemy.AttackTimer -= dt
+
+		if dist <= enemy.AttackRange {
+			enemy.State = "attack"
+			if enemy.AttackTimer <= 0 {
+				enemy.AttackTimer = 1.0
+				if app.console == nil || !app.console.CheatEnabled(systems.CheatGod) {
+					app.scriptEngine.SetPlayerHP(app.scriptEngine.GetPlayerHP() - enemy.Damage)
+				}
+			}
+		} else if dist < 6.5 {
+			enemy.State = "walk"
+			if dist > 0.001 {
+				stepX := (dx / dist) * enemy.Speed * dt
+				stepY := (dy / dist) * enemy.Speed * dt
+				if !app.isWallAt(enemy.Sprite.X+stepX, enemy.Sprite.Y) && !app.enemyBlocked(enemy, enemy.Sprite.X+stepX, enemy.Sprite.Y) {
+					enemy.Sprite.X += stepX
+				}
+				if !app.isWallAt(enemy.Sprite.X, enemy.Sprite.Y+stepY) && !app.enemyBlocked(enemy, enemy.Sprite.X, enemy.Sprite.Y+stepY) {
+					enemy.Sprite.Y += stepY
+				}
+			}
+		} else {
+			enemy.State = "idle"
+		}
+
+		enemy.AnimTimer += dt
+		enemy.Sprite.TexName = app.enemyAnimFrame(enemy)
+		if app.scriptEngine != nil {
+			if state := app.scriptEngine.Entities[enemy.ID]; state != nil {
+				state.HP = enemy.HP
+				state.X = enemy.Sprite.X
+				state.Y = enemy.Sprite.Y
+				state.Alive = enemy.Alive
+			}
+		}
+	}
+}
+
+func (app *App) enemyAnimFrame(enemy *DemoEnemy) string {
+	switch enemy.State {
+	case "walk":
+		frames := []int{1, 2, 3, 2}
+		return app.enemyFrame(frames[int(enemy.AnimTimer/0.14)%len(frames)])
+	case "attack":
+		frames := []int{4, 5}
+		return app.enemyFrame(frames[int(enemy.AnimTimer/0.12)%len(frames)])
+	default:
+		frames := []int{0, 1}
+		return app.enemyFrame(frames[int(enemy.AnimTimer/0.45)%len(frames)])
+	}
+}
+
+func (app *App) enemyBlocked(current *DemoEnemy, x, y float64) bool {
+	for _, other := range app.enemies {
+		if other == current || !other.Alive || other.Sprite == nil {
+			continue
+		}
+		dx := other.Sprite.X - x
+		dy := other.Sprite.Y - y
+		if dx*dx+dy*dy < 0.28*0.28 {
+			return true
+		}
+	}
+	return false
+}
+
+func (app *App) shootDemoEnemy() {
+	bestDist := math.MaxFloat64
+	var target *DemoEnemy
+	for _, enemy := range app.enemies {
+		if !enemy.Alive || enemy.Sprite == nil || !enemy.Sprite.Active {
+			continue
+		}
+		dx := enemy.Sprite.X - app.player.X
+		dy := enemy.Sprite.Y - app.player.Y
+		dist := math.Sqrt(dx*dx + dy*dy)
+		if dist > 7.0 || dist >= bestDist {
+			continue
+		}
+		angle := math.Atan2(dy, dx) - app.player.Angle
+		for angle > math.Pi {
+			angle -= 2 * math.Pi
+		}
+		for angle < -math.Pi {
+			angle += 2 * math.Pi
+		}
+		if math.Abs(angle) > 0.18 {
+			continue
+		}
+		if app.hasWallBetween(app.player.X, app.player.Y, enemy.Sprite.X, enemy.Sprite.Y) {
+			continue
+		}
+		bestDist = dist
+		target = enemy
+	}
+	if target == nil {
+		return
+	}
+	target.HP -= 25
+	target.Sprite.Alpha = 0.75
+	if target.HP <= 0 {
+		target.HP = 0
+		target.Alive = false
+		target.Sprite.Active = false
+		if app.scriptEngine != nil {
+			app.scriptEngine.Emit("onEnemyDead", target.ID)
+			if state := app.scriptEngine.Entities[target.ID]; state != nil {
+				state.HP = 0
+				state.Alive = false
+			}
+		}
+	} else if app.scriptEngine != nil {
+		app.scriptEngine.Emit("onEnemyDamage", target.ID, 25)
+	}
+}
+
+func (app *App) hasWallBetween(x1, y1, x2, y2 float64) bool {
+	dx := x2 - x1
+	dy := y2 - y1
+	dist := math.Sqrt(dx*dx + dy*dy)
+	steps := int(dist / 0.08)
+	if steps < 1 {
+		steps = 1
+	}
+	for i := 1; i < steps; i++ {
+		t := float64(i) / float64(steps)
+		if app.raycaster.Map.GetCell(int(math.Floor(x1+dx*t)), int(math.Floor(y1+dy*t))) != renderer.CellEmpty {
+			return true
+		}
+	}
+	return false
 }
 
 func (app *App) isWallAt(x, y float64) bool {
@@ -361,12 +953,31 @@ func (app *App) isWallAt(x, y float64) bool {
 
 // render draws a frame.
 func (app *App) render() {
+	// Sync HUD values from scripting engine.
+	app.raycaster.HUDHP = int(app.scriptEngine.GetPlayerHP())
+	app.raycaster.HUDMaxHP = int(app.scriptEngine.PlayerMaxHP)
+	app.raycaster.HUDAmmo = app.scriptEngine.HUDAmmo
+	app.raycaster.HUDAmmoMax = app.scriptEngine.HUDAmmoMax
+
+	// Sync console state.
+	if app.console != nil {
+		app.raycaster.ConsoleOpen = app.console.Open
+		app.raycaster.ConsoleInput = app.console.Input
+		app.raycaster.ConsoleHistory = app.console.History
+	}
+
 	app.raycaster.ApplyEffects(app.effects)
 	app.raycaster.Render(app.sprites)
 }
 
 // shutdown cleans up resources.
 func (app *App) shutdown() {
+	if app.audioSys != nil {
+		app.audioSys.Shutdown()
+	}
+	if app.humanLoop != nil {
+		app.humanLoop.Stop()
+	}
 	if app.luaBridge != nil {
 		app.luaBridge.Close()
 	}
@@ -389,6 +1000,26 @@ func (app *App) shutdown() {
 // --- GLFW Callbacks ---
 
 func (app *App) keyCallback(w *glfw.Window, key glfw.Key, scancode int, action glfw.Action, mods glfw.ModifierKey) {
+	// Console takes all input when open.
+	if app.console != nil && app.console.Open {
+		if action == glfw.Press || action == glfw.Repeat {
+			app.consoleKeyInput(key)
+		}
+		return
+	}
+
+	// Tilde toggles console.
+	if key == glfw.KeyGraveAccent && action == glfw.Press {
+		app.console.Toggle()
+		return
+	}
+
+	// F1 GUI panel (placeholder).
+	if key == glfw.KeyF1 && action == glfw.Press {
+		log.Println("[Cheats] F1 GUI panel (not yet implemented)")
+		return
+	}
+
 	app.inputManager.OnKeyEvent(key, scancode, action, mods)
 }
 
@@ -399,5 +1030,141 @@ func (app *App) mouseButtonCallback(w *glfw.Window, button glfw.MouseButton, act
 func (app *App) sizeCallback(w *glfw.Window, width int, height int) {
 	if !app.fullscreen {
 		gl.Viewport(0, 0, int32(width), int32(height))
+	}
+}
+
+// --- Console input handling ---
+
+func (app *App) consoleKeyInput(key glfw.Key) {
+	switch key {
+	case glfw.KeyEscape, glfw.KeyGraveAccent:
+		app.console.Toggle()
+	case glfw.KeyEnter, glfw.KeyKPEnter:
+		input := strings.TrimSpace(app.console.Input)
+		// Route to human‑loop if there's a pending question.
+		if app.humanLoop != nil && app.humanLoop.AnswerFromConsole(input) {
+			app.console.History = append(app.console.History, "> "+input)
+			app.console.History = append(app.console.History, "[OK]")
+			app.console.Input = ""
+			app.console.Cursor = -1
+			return
+		}
+		app.console.Submit()
+	case glfw.KeyBackspace:
+		app.console.Backspace()
+	case glfw.KeyUp:
+		app.console.HistoryUp()
+	case glfw.KeyDown:
+		app.console.HistoryDown()
+	case glfw.KeyV:
+		// Ctrl+V paste (simplified — GLFW doesn't give clipboard easily here)
+	default:
+		// Printable characters are handled via char callback.
+	}
+}
+
+func (app *App) charCallback(w *glfw.Window, char rune) {
+	if app.console != nil && app.console.Open {
+		if char >= 32 && char < 127 {
+			app.console.HandleChar(char)
+		}
+	}
+}
+
+// consoleCommand handles cheat commands that need game state.
+func (app *App) consoleCommand(cmd string, args []string) string {
+	switch cmd {
+	case "speed":
+		v := systems.ArgFloat(args, 0, 2.0)
+		app.player.MoveSpeed = v
+		return fmt.Sprintf("speed set to %.1f", v)
+
+	case "spawn":
+		entType := systems.ArgString(args, 0)
+		x := systems.ArgFloat(args, 1, app.player.X+1)
+		y := systems.ArgFloat(args, 2, app.player.Y)
+		if entType == "" {
+			return "spawn <entity> [x] [y]"
+		}
+		id := fmt.Sprintf("spawn_%d", len(app.enemies))
+		sprite := &renderer.Sprite{X: x, Y: y, Z: 0, Scale: 0.85, TexName: app.enemyFrame(0), Alpha: 1.0, Active: true, EntityID: id}
+		enemy := &DemoEnemy{
+			ID: id, Sprite: sprite, HP: 50, MaxHP: 50,
+			Speed: 1.15, Damage: 8, AttackRange: 0.85, State: "idle", Alive: true,
+		}
+		app.enemies = append(app.enemies, enemy)
+		app.sprites = append(app.sprites, sprite)
+		if app.scriptEngine != nil {
+			app.scriptEngine.Entities[id] = &scripting.EntityState{ID: id, Type: entType, HP: 50, MaxHP: 50, X: x, Y: y, Z: 0, Alive: true}
+		}
+		return fmt.Sprintf("spawned %s at (%.1f, %.1f)", entType, x, y)
+
+	case "give":
+		item := systems.ArgString(args, 0)
+		if item == "" {
+			return "give <weapon|item>"
+		}
+		if app.scriptEngine != nil {
+			app.scriptEngine.GiveWeapon(item)
+		}
+		return fmt.Sprintf("gave %s", item)
+
+	case "kill":
+		target := systems.ArgString(args, 0)
+		if target != "" {
+			// Kill specific enemy.
+			for _, e := range app.enemies {
+				if e.ID == target && e.Alive {
+					e.HP = 0
+					e.Alive = false
+					e.Sprite.Active = false
+					return fmt.Sprintf("killed %s", target)
+				}
+			}
+			return fmt.Sprintf("target not found: %s", target)
+		}
+		// Kill all.
+		count := 0
+		for _, e := range app.enemies {
+			if e.Alive {
+				e.HP = 0
+				e.Alive = false
+				e.Sprite.Active = false
+				count++
+			}
+		}
+		return fmt.Sprintf("killed %d enemies", count)
+
+	case "tp":
+		x := systems.ArgFloat(args, 0, app.player.X)
+		y := systems.ArgFloat(args, 1, app.player.Y)
+		app.player.X = x
+		app.player.Y = y
+		return fmt.Sprintf("teleported to (%.1f, %.1f)", x, y)
+
+	case "reload":
+		app.playerAnim.ReloadTimer = 0.75
+		return "weapon reloaded"
+
+	case "map":
+		name := systems.ArgString(args, 0)
+		if name == "" {
+			return "map <name>"
+		}
+		return fmt.Sprintf("map change to '%s' (not yet implemented)", name)
+
+	case "hltest":
+		if app.humanLoop == nil {
+			return "human-loop not initialized"
+		}
+		go func() {
+			pq := app.humanLoop.Ask("HL test — czy dziala? (tak/nie)", []string{"tak", "nie"})
+			answer := <-pq.Answer
+			app.console.History = append(app.console.History, fmt.Sprintf("[HL answer] %s", answer))
+		}()
+		return "human-loop test sent — type 'tak' or 'nie'"
+
+	default:
+		return fmt.Sprintf("unknown: %s", cmd)
 	}
 }

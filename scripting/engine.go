@@ -29,6 +29,10 @@ type Engine struct {
 	PlayerAmmo    map[string]int // weapon name → current ammo
 	PlayerWeapons []string
 
+	// HUD display values (updated by JS UI.setHP/setAmmo).
+	HUDAmmo    int
+	HUDAmmoMax int
+
 	// Entities (simple registry for now; will be replaced by gameplay/entities later).
 	Entities map[string]*EntityState
 
@@ -50,6 +54,7 @@ type Engine struct {
 	// Audio placeholders.
 	CurrentMusic string
 	Volume       float64
+	AudioPlayer  AudioPlayer // interface to avoid circular import
 
 	// UI state.
 	HUDVisible   bool
@@ -393,16 +398,28 @@ func (e *Engine) LockDoor(id string) {
 	log.Printf("[Script] LockDoor: %s", id)
 }
 
-// --- Sound API ---
-
-// PlaySound plays a sound effect (placeholder).
-func (e *Engine) PlaySound(file string) {
-	log.Printf("[Script] PlaySound: %s", file)
+// AudioPlayer is the interface for audio playback (implemented by systems.AudioSystem).
+type AudioPlayer interface {
+	PlaySound(name string)
+	StopAll()
 }
 
-// StopSound stops a sound effect (placeholder).
+// --- Sound API ---
+
+// PlaySound plays a sound effect.
+func (e *Engine) PlaySound(file string) {
+	log.Printf("[Script] PlaySound: %s", file)
+	if e.AudioPlayer != nil {
+		e.AudioPlayer.PlaySound(file)
+	}
+}
+
+// StopSound stops all sounds.
 func (e *Engine) StopSound(file string) {
 	log.Printf("[Script] StopSound: %s", file)
+	if e.AudioPlayer != nil {
+		e.AudioPlayer.StopAll()
+	}
 }
 
 // PlayMusic starts background music (placeholder).

@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<title>AIEngine Sprite Cutter</title>
+<style>
+  body { margin:0; background:#1a1a2e; color:#eee; font:14px monospace; overflow:hidden; }
+  #app { display:flex; height:100vh; }
+  #canvas-wrap { flex:1; overflow:auto; background:#111; display:flex; align-items:center; justify-content:center; }
+  canvas { image-rendering:pixelated; cursor:crosshair; }
+  #panel { width:300px; background:#16213e; padding:12px; overflow-y:auto; border-left:2px solid #0f3460; }
+  h2 { color:#e94560; margin:0 0 8px; font-size:16px; }
+  .row { display:flex; gap:6px; align-items:center; margin:4px 0; }
+  input { width:60px; padding:4px; background:#0f3460; color:#eee; border:1px solid #533483; border-radius:3px; font:13px monospace; text-align:center; }
+  button { padding:6px 14px; background:#e94560; color:#fff; border:none; border-radius:3px; cursor:pointer; font:13px monospace; }
+  button:hover { background:#ff6b81; }
+  .zone { background:#0f3460; border-radius:4px; padding:8px; margin:6px 0; border-left:3px solid #e94560; }
+  .zone.active { border-left-color:#0f0; }
+  .zone h3 { margin:0 0 4px; font-size:13px; color:#e94560; }
+  label { font-size:12px; color:#999; }
+  hr { border-color:#333; margin:10px 0; }
+  #output { background:#0a0a1a; padding:8px; border-radius:4px; font-size:11px; white-space:pre-wrap; max-height:120px; overflow-y:auto; margin-top:8px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="canvas-wrap"><canvas id="c"></canvas></div>
+  <div id="panel">
+    <h2>Sprite Cutter</h2>
+    <div class="row">
+      <label>Siatka:</label>
+      <input id="cols" value="3" type="number" min="1" max="10" style="width:40px"> ×
+      <input id="rows" value="2" type="number" min="1" max="10" style="width:40px">
+      <button onclick="rebuildGrid()">Zastosuj</button>
+    </div>
+    <p style="font-size:11px;color:#888;margin:4px 0">Przeciągaj rogi prostokątów. Kliknij strefę by edytować.</p>
+    <hr>
+    <div id="zones"></div>
+    <hr>
+    <button onclick="exportCoords()" style="width:100%">Eksportuj współrzędne</button>
+    <div id="output"></div>
+  </div>
+</div>
+<script>
+const IMG = "przeciwnik.png";
+let img = new Image();
+img.src = IMG;
+let cols = 3, rows = 2;
+let zones = [];
+let selected = -1;
+let dragging = null; // {zone, corner: 'tl'|'tr'|'bl'|'br'|'move'}
+let scale = 1;
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const panel = document.getElementById('zones');
+const output = document.getElementById('output');
+
+img.onload = () => { scale = Math.min(1, (window.innerWidth-320)/img.width, (window.innerHeight-40)/img.height); canvas.width = img.width*scale|0; canvas.height = img.height*scale|0; rebuildGrid(); };
+
+function rebuildGrid() {
+  cols = +document.getElementById('cols').value || 3;
+  rows = +document.getElementById('rows').value || 2;
+  const cw = img.width/cols, ch = img.height/rows;
+  zones = [];
+  for (let r=0; r<rows; r++) for (let c=0; c<cols; c++) {
+    zones.push({ x:c*cw, y:r*ch, w:cw, h:ch, name:`enemy_${r*cols+c}` });
+  }
+  selected = -1; render();
+}
+
+function render() {
+  if (!img.complete) return;
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.drawImage(img, 0,0,canvas.width,canvas.height);
+  zones.forEach((z,i) => {
+    ctx.strokeStyle = i===selected ? '#0f0' : '#e94560';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(z.x*scale, z.y*scale, z.w*scale, z.h*scale);
+    // corners
+    const corners = [{x:z.x,y:z.y},{x:z.x+z.w,y:z.y},{x:z.x,y:z.y+z.h},{x:z.x+z.w,y:z.y+z.h}];
+    corners.forEach(c => { ctx.fillStyle='#fff'; ctx.fillRect(c.x*scale-3, c.y*scale-3, 6, 6); });
+    ctx.fillStyle='#000'; ctx.fillRect(z.x*scale, z.y*scale-14, 80, 14);
+    ctx.fillStyle='#0f0'; ctx.font='10px monospace'; ctx.fillText(z.name, z.x*scale+2, z.y*scale-2);
+  });
+  // panel list
+  panel.innerHTML = zones.map((z,i) => `<div class="zone${i===selected?' active':''}" onclick="select(${i})">
+    <h3>${z.name}</h3>
+    <div class="row"><label>X</label><input value="${z.x|0}" onchange="updateZone(${i},'x',this.value)"><label>Y</label><input value="${z.y|0}" onchange="updateZone(${i},'y',this.value)"></div>
+    <div class="row"><label>W</label><input value="${z.w|0}" onchange="updateZone(${i},'w',this.value)"><label>H</label><input value="${z.h|0}" onchange="updateZone(${i},'h',this.value)"></div>
+  </div>`).join('');
+}
+function select(i) { selected = i; render(); }
+function updateZone(i, prop, val) { zones[i][prop] = +val || 0; render(); }
+
+canvas.onmousedown = (e) => {
+  const mx = e.offsetX/scale, my = e.offsetY/scale;
+  // check corners first
+  for (let i=zones.length-1; i>=0; i--) {
+    const z = zones[i];
+    const corners = [{x:z.x,y:z.y,t:'tl'},{x:z.x+z.w,y:z.y,t:'tr'},{x:z.x,y:z.y+z.h,t:'bl'},{x:z.x+z.w,y:z.y+z.h,t:'br'}];
+    for (const c of corners) {
+      if (Math.abs(mx-c.x)<8 && Math.abs(my-c.y)<8) { dragging = {zone:i, corner:c.t, sx:mx, sy:my, oz:{...z}}; select(i); return; }
+    }
+  }
+  // check inside zone
+  for (let i=zones.length-1; i>=0; i--) {
+    const z = zones[i];
+    if (mx>=z.x && mx<=z.x+z.w && my>=z.y && my<=z.y+z.h) { dragging = {zone:i, corner:'move', sx:mx, sy:my, oz:{...z}}; select(i); return; }
+  }
+  selected = -1; render();
+};
+canvas.onmousemove = (e) => {
+  if (!dragging) return;
+  const mx = e.offsetX/scale, my = e.offsetY/scale;
+  const dx = mx - dragging.sx, dy = my - dragging.sy;
+  const z = zones[dragging.zone];
+  const oz = dragging.oz;
+  switch (dragging.corner) {
+    case 'tl': z.x = oz.x+dx; z.y = oz.y+dy; z.w = oz.w-dx; z.h = oz.h-dy; break;
+    case 'tr': z.y = oz.y+dy; z.w = oz.w+dx; z.h = oz.h-dy; break;
+    case 'bl': z.x = oz.x+dx; z.w = oz.w-dx; z.h = oz.h+dy; break;
+    case 'br': z.w = oz.w+dx; z.h = oz.h+dy; break;
+    case 'move': z.x = oz.x+dx; z.y = oz.y+dy; break;
+  }
+  if (z.w<8) z.w=8; if (z.h<8) z.h=8;
+  render();
+};
+canvas.onmouseup = () => { dragging = null; };
+
+function exportCoords() {
+  const lines = zones.map(z => `tools.CutSprite("przeciwnik.png", ${z.x|0}, ${z.y|0}, ${z.w|0}, ${z.h|0}, "assets/sprites/enemy/${z.name}.png")`);
+  output.textContent = lines.join('\n');
+  navigator.clipboard.writeText(lines.join('\n'));
+}
+</script>
+</body>
+</html>
