@@ -128,6 +128,7 @@ func (m *Manager) SetDefaults() {
 		{"interact", glfw.KeyE},
 		{"jump", glfw.KeySpace},
 		{"crouch", glfw.KeyC},
+		{"prone", glfw.KeyZ},
 		{"sprint", glfw.KeyLeftShift},
 		{"next_weapon", glfw.KeyTab},
 		{"use_item", glfw.KeyF},

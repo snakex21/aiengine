@@ -22,6 +22,7 @@ BIND next_weapon TAB
 BIND interact E
 BIND jump SPACE
 BIND crouch C
+BIND prone Z
 BIND sprint LEFT_SHIFT
 BIND use_item F
 

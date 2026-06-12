@@ -683,7 +683,7 @@ func (app *App) update(dt float64) {
 		return
 	}
 
-	speed := app.player.MoveSpeed * dt
+	speed := app.player.MoveSpeed * app.player.SpeedMultiplier() * dt
 
 	moveX := 0.0
 	moveY := 0.0
@@ -716,8 +716,26 @@ func (app *App) update(dt float64) {
 		app.player.Y = newY
 	}
 
+	// Stance: hold crouch to crouch; toggle prone with its key. Jumping clears
+	// any non-standing stance.
+	if app.inputManager.IsJustPressed("prone") {
+		if app.player.Stance == renderer.StanceProne {
+			app.player.SetStance(renderer.StanceStand)
+		} else {
+			app.player.SetStance(renderer.StanceProne)
+		}
+	} else if app.inputManager.IsPressed("crouch") {
+		app.player.SetStance(renderer.StanceCrouch)
+	} else if app.player.Stance == renderer.StanceCrouch {
+		// Crouch released → stand back up.
+		app.player.SetStance(renderer.StanceStand)
+	}
+
 	// Vertical movement: jumping and gravity.
 	if app.inputManager.IsJustPressed("jump") {
+		if app.player.Stance != renderer.StanceStand {
+			app.player.SetStance(renderer.StanceStand)
+		}
 		app.player.Jump()
 	}
 	app.player.UpdateVertical(dt)
@@ -731,8 +749,12 @@ func (app *App) update(dt float64) {
 	}
 	dx := cx - app.prevMouseX
 	dy := cy - app.prevMouseY
-	if dx != 0 || dy != 0 {
+	if dx != 0 {
 		app.player.Angle += dx * 0.003
+	}
+	if dy != 0 {
+		// Mouse down (positive dy) looks down → shift horizon up (negative pitch).
+		app.player.AddPitch(-dy * 0.0015)
 	}
 	app.prevMouseX = cx
 	app.prevMouseY = cy

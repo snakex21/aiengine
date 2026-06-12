@@ -2,7 +2,10 @@
 
 package renderer
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestJumpStartsFromGround(t *testing.T) {
 	p := NewPlayerState(0, 0, 0)
@@ -77,5 +80,85 @@ func TestJumpHeightClamped(t *testing.T) {
 		if p.Z > MaxJumpZ+1e-9 {
 			t.Fatalf("Z exceeded clamp during flight: Z=%v limit=%v", p.Z, MaxJumpZ)
 		}
+	}
+}
+
+func TestPitchClamped(t *testing.T) {
+	p := NewPlayerState(0, 0, 0)
+	p.AddPitch(100) // way past the limit
+	if p.Pitch != PitchLimit {
+		t.Errorf("pitch up should clamp to %v, got %v", PitchLimit, p.Pitch)
+	}
+	p.AddPitch(-100)
+	if p.Pitch != -PitchLimit {
+		t.Errorf("pitch down should clamp to %v, got %v", -PitchLimit, p.Pitch)
+	}
+}
+
+func TestPitchAccumulates(t *testing.T) {
+	p := NewPlayerState(0, 0, 0)
+	p.AddPitch(0.1)
+	p.AddPitch(0.05)
+	if math.Abs(p.Pitch-0.15) > 1e-9 {
+		t.Errorf("expected pitch 0.15, got %v", p.Pitch)
+	}
+}
+
+func TestStanceSpeedMultiplier(t *testing.T) {
+	p := NewPlayerState(0, 0, 0)
+	if p.SpeedMultiplier() != 1.0 {
+		t.Errorf("standing speed should be 1.0, got %v", p.SpeedMultiplier())
+	}
+	p.SetStance(StanceCrouch)
+	if p.SpeedMultiplier() >= 1.0 {
+		t.Errorf("crouch should be slower than standing, got %v", p.SpeedMultiplier())
+	}
+	p.SetStance(StanceProne)
+	if p.SpeedMultiplier() >= speedCrouch {
+		t.Errorf("prone should be slower than crouch, got %v", p.SpeedMultiplier())
+	}
+}
+
+func TestStanceLowersEyeHeight(t *testing.T) {
+	p := NewPlayerState(0, 0, 0)
+	// Standing eye offset eases to ~0.
+	p.UpdateVertical(1.0)
+	if math.Abs(p.EyeOffset) > 0.01 {
+		t.Errorf("standing eye offset should be ~0, got %v", p.EyeOffset)
+	}
+	// Crouch: eye height should ease downward over time.
+	p.SetStance(StanceCrouch)
+	for i := 0; i < 120; i++ {
+		p.UpdateVertical(1.0 / 60.0)
+	}
+	if p.EyeOffset >= 0 {
+		t.Errorf("crouch eye offset should be negative, got %v", p.EyeOffset)
+	}
+	crouchOffset := p.EyeOffset
+	// Prone: lower still.
+	p.SetStance(StanceProne)
+	for i := 0; i < 120; i++ {
+		p.UpdateVertical(1.0 / 60.0)
+	}
+	if p.EyeOffset >= crouchOffset {
+		t.Errorf("prone eye offset (%v) should be below crouch (%v)", p.EyeOffset, crouchOffset)
+	}
+}
+
+func TestProneCannotJump(t *testing.T) {
+	p := NewPlayerState(0, 0, 0)
+	p.SetStance(StanceProne)
+	p.Jump()
+	if !p.Grounded || p.VelZ != 0 {
+		t.Errorf("prone player should not jump: Grounded=%v VelZ=%v", p.Grounded, p.VelZ)
+	}
+}
+
+func TestCameraHeightCombinesJumpAndStance(t *testing.T) {
+	p := NewPlayerState(0, 0, 0)
+	p.Z = 0.2
+	p.EyeOffset = -0.1
+	if math.Abs(p.CameraHeight()-0.1) > 1e-9 {
+		t.Errorf("expected camera height 0.1, got %v", p.CameraHeight())
 	}
 }

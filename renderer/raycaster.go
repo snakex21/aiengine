@@ -53,14 +53,30 @@ func (m *MapData) GetCell(x, y int) MapCell {
 
 // --- Player ---
 
+// Stance enumerates the player's body posture, which controls eye height and
+// movement speed.
+type Stance int
+
+const (
+	StanceStand Stance = iota
+	StanceCrouch
+	StanceProne
+)
+
 // PlayerState holds the player's position and orientation for the raycaster.
 type PlayerState struct {
-	X         float64
-	Y         float64
-	Z         float64 // vertical height above ground, in wall-height units (0 = standing)
-	VelZ      float64 // vertical velocity for jumping/falling
-	Grounded  bool    // true while standing on the ground
-	Angle     float64
+	X        float64
+	Y        float64
+	Z        float64 // jump height above ground, in wall-height units (0 = on floor)
+	VelZ     float64 // vertical velocity for jumping/falling
+	Grounded bool    // true while standing on the ground
+
+	Angle float64 // yaw (left/right look), radians
+	Pitch float64 // vertical look, as a fraction of screen height [-PitchLimit, PitchLimit]
+
+	Stance    Stance  // current posture
+	EyeOffset float64 // smoothed eye-height offset for the current stance (<= 0)
+
 	FOV       float64
 	MoveSpeed float64
 	RotSpeed  float64
@@ -73,6 +89,7 @@ func NewPlayerState(x, y, angle float64) *PlayerState {
 		Z:         0,
 		Grounded:  true,
 		Angle:     angle,
+		Stance:    StanceStand,
 		FOV:       math.Pi / 2.7, // ~66 degrees
 		MoveSpeed: 3.0,
 		RotSpeed:  3.0,
@@ -87,18 +104,87 @@ const (
 	MaxJumpZ     = 0.45 // clamp on peak height
 )
 
+// Look and stance tuning.
+const (
+	PitchLimit = 0.35 // max up/down look as a fraction of screen height
+
+	eyeStand  = 0.0   // eye-height offset per stance (wall-height units, <= 0)
+	eyeCrouch = -0.18 // crouched: lower camera
+	eyeProne  = -0.34 // prone: lowest camera
+	eyeLerp   = 10.0  // eye-height smoothing rate (per second)
+
+	speedCrouch = 0.5  // movement speed multiplier while crouched
+	speedProne  = 0.28 // movement speed multiplier while prone
+)
+
 // Jump starts an upward jump if the player is currently grounded.
-// It is a no-op while airborne, preventing double jumps.
+// It is a no-op while airborne (no double jump) or while prone.
 func (p *PlayerState) Jump() {
-	if p.Grounded {
+	if p.Grounded && p.Stance != StanceProne {
 		p.VelZ = JumpVelocity
 		p.Grounded = false
 	}
 }
 
+// SetStance changes the player's posture. Jumping is only allowed when
+// standing, and the eye height eases toward the new stance in UpdateVertical.
+func (p *PlayerState) SetStance(s Stance) {
+	p.Stance = s
+}
+
+// stanceEyeTarget returns the eye-height offset for the current stance.
+func (p *PlayerState) stanceEyeTarget() float64 {
+	switch p.Stance {
+	case StanceCrouch:
+		return eyeCrouch
+	case StanceProne:
+		return eyeProne
+	default:
+		return eyeStand
+	}
+}
+
+// SpeedMultiplier returns the movement-speed scale for the current stance.
+func (p *PlayerState) SpeedMultiplier() float64 {
+	switch p.Stance {
+	case StanceCrouch:
+		return speedCrouch
+	case StanceProne:
+		return speedProne
+	default:
+		return 1.0
+	}
+}
+
+// CameraHeight is the total camera height above the floor: jump height plus the
+// (negative) stance eye offset. Used for distance-scaled vertical parallax.
+func (p *PlayerState) CameraHeight() float64 {
+	return p.Z + p.EyeOffset
+}
+
+// AddPitch adjusts the vertical look angle and clamps it to the allowed range.
+func (p *PlayerState) AddPitch(delta float64) {
+	p.Pitch += delta
+	if p.Pitch > PitchLimit {
+		p.Pitch = PitchLimit
+	}
+	if p.Pitch < -PitchLimit {
+		p.Pitch = -PitchLimit
+	}
+}
+
 // UpdateVertical advances the player's vertical position by dt seconds,
-// applying gravity while airborne and landing on the ground at Z=0.
+// applying gravity while airborne and easing the eye height toward the current
+// stance. Landing settles the player on the ground at Z=0.
 func (p *PlayerState) UpdateVertical(dt float64) {
+	// Ease eye height toward the stance target.
+	target := p.stanceEyeTarget()
+	t := eyeLerp * dt
+	if t > 1 {
+		t = 1
+	}
+	p.EyeOffset += (target - p.EyeOffset) * t
+
 	if p.Grounded {
 		return
 	}
@@ -315,12 +401,23 @@ func (rc *Raycaster) Render(sprites []*Sprite) {
 func (rc *Raycaster) renderToBuffer(sprites []*Sprite) {
 	sw := int(rc.screenW)
 	sh := int(rc.screenH)
+	fsw := float64(sw)
+	fsh := float64(sh)
 
-	// Fill ceiling and floor.
+	// Fill ceiling and floor. The horizon line shifts with pitch (look up/down)
+	// so the floor/ceiling split tracks the camera's vertical aim.
 	ceil := colorToRGBA(ceilColor)
 	flr := colorToRGBA(floorColor)
 
-	for y := 0; y < sh/2; y++ {
+	horizon := sh/2 + int(rc.Player.Pitch*fsh)
+	if horizon < 0 {
+		horizon = 0
+	}
+	if horizon > sh {
+		horizon = sh
+	}
+
+	for y := 0; y < horizon; y++ {
 		for x := 0; x < sw; x++ {
 			idx := (y*sw + x) * 4
 			rc.pixels[idx] = ceil[0]
@@ -329,7 +426,7 @@ func (rc *Raycaster) renderToBuffer(sprites []*Sprite) {
 			rc.pixels[idx+3] = ceil[3]
 		}
 	}
-	for y := sh / 2; y < sh; y++ {
+	for y := horizon; y < sh; y++ {
 		for x := 0; x < sw; x++ {
 			idx := (y*sw + x) * 4
 			rc.pixels[idx] = flr[0]
@@ -344,9 +441,12 @@ func (rc *Raycaster) renderToBuffer(sprites []*Sprite) {
 		rc.zBuffer[i] = 0
 	}
 
-	fsw := float64(sw)
-	fsh := float64(sh)
 	halfFOV := rc.Player.FOV / 2.0
+
+	// Vertical screen shift applied to walls/sprites: pitch (uniform horizon
+	// shift) plus camera height (distance-scaled parallax from jump/stance).
+	pitchShift := rc.Player.Pitch * fsh
+	camHeight := rc.Player.CameraHeight()
 
 	// Raycast each column.
 	for x := 0; x < sw; x++ {
@@ -428,10 +528,10 @@ func (rc *Raycaster) renderToBuffer(sprites []*Sprite) {
 
 		// Wall height on screen.
 		wallHeight := fsh / perpDist
-		// Vertical camera offset for jumping: a world-space height of Z
-		// projects to Z*wallHeight pixels at this distance. Raising the camera
-		// (Z>0) shifts walls downward on screen.
-		vOffset := rc.Player.Z * wallHeight
+		// Vertical screen offset: camera height (jump + stance) projects to
+		// camHeight*wallHeight pixels at this distance (distance-scaled
+		// parallax), plus a uniform pitch shift for looking up/down.
+		vOffset := camHeight*wallHeight + pitchShift
 		drawStart := int((fsh-wallHeight)/2.0 + vOffset)
 		drawEnd := int(drawStart) + int(wallHeight)
 		if drawStart < 0 {
@@ -744,9 +844,11 @@ func (rc *Raycaster) drawSprites(sprites []*Sprite) {
 		spriteHeight := (sh / perpDist) * s.Scale
 		spriteWidth := spriteHeight // square sprites
 
-		// Vertical center offset by sprite Z, plus player jump height so
-		// grounded sprites stay anchored to the floor as the camera rises.
-		drawStartY := (sh-spriteHeight)/2.0 + s.Z*sh/perpDist + rc.Player.Z*sh/perpDist
+		// Vertical center offset by sprite Z, plus the camera's vertical shift
+		// (jump + stance parallax and pitch) so grounded sprites stay anchored
+		// to the floor and track the player's vertical aim.
+		camShift := rc.Player.CameraHeight()*sh/perpDist + rc.Player.Pitch*sh
+		drawStartY := (sh-spriteHeight)/2.0 + s.Z*sh/perpDist + camShift
 		drawEndY := drawStartY + spriteHeight
 
 		// Horizontal bounds.
