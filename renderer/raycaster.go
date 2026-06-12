@@ -57,6 +57,9 @@ func (m *MapData) GetCell(x, y int) MapCell {
 type PlayerState struct {
 	X         float64
 	Y         float64
+	Z         float64 // vertical height above ground, in wall-height units (0 = standing)
+	VelZ      float64 // vertical velocity for jumping/falling
+	Grounded  bool    // true while standing on the ground
 	Angle     float64
 	FOV       float64
 	MoveSpeed float64
@@ -67,10 +70,48 @@ func NewPlayerState(x, y, angle float64) *PlayerState {
 	return &PlayerState{
 		X:         x,
 		Y:         y,
+		Z:         0,
+		Grounded:  true,
 		Angle:     angle,
 		FOV:       math.Pi / 2.7, // ~66 degrees
 		MoveSpeed: 3.0,
 		RotSpeed:  3.0,
+	}
+}
+
+// Jump physics tuning. Z is in wall-height units where 0 is standing on the
+// floor. Values are chosen so a jump peaks at roughly half a wall height.
+const (
+	JumpVelocity = 4.5  // initial upward velocity (units/sec)
+	GravityAccel = 16.0 // downward acceleration (units/sec^2)
+	MaxJumpZ     = 0.45 // clamp on peak height
+)
+
+// Jump starts an upward jump if the player is currently grounded.
+// It is a no-op while airborne, preventing double jumps.
+func (p *PlayerState) Jump() {
+	if p.Grounded {
+		p.VelZ = JumpVelocity
+		p.Grounded = false
+	}
+}
+
+// UpdateVertical advances the player's vertical position by dt seconds,
+// applying gravity while airborne and landing on the ground at Z=0.
+func (p *PlayerState) UpdateVertical(dt float64) {
+	if p.Grounded {
+		return
+	}
+	p.VelZ -= GravityAccel * dt
+	p.Z += p.VelZ * dt
+	if p.Z >= MaxJumpZ && p.VelZ > 0 {
+		p.Z = MaxJumpZ
+		p.VelZ = 0
+	}
+	if p.Z <= 0 {
+		p.Z = 0
+		p.VelZ = 0
+		p.Grounded = true
 	}
 }
 
@@ -387,7 +428,11 @@ func (rc *Raycaster) renderToBuffer(sprites []*Sprite) {
 
 		// Wall height on screen.
 		wallHeight := fsh / perpDist
-		drawStart := int((fsh - wallHeight) / 2.0)
+		// Vertical camera offset for jumping: a world-space height of Z
+		// projects to Z*wallHeight pixels at this distance. Raising the camera
+		// (Z>0) shifts walls downward on screen.
+		vOffset := rc.Player.Z * wallHeight
+		drawStart := int((fsh-wallHeight)/2.0 + vOffset)
 		drawEnd := int(drawStart) + int(wallHeight)
 		if drawStart < 0 {
 			drawStart = 0
@@ -436,7 +481,7 @@ func (rc *Raycaster) renderToBuffer(sprites []*Sprite) {
 				texX += texW
 			}
 			step := float64(texH) / wallHeight
-			texPos := (float64(drawStart) - fsh/2.0 + wallHeight/2.0) * step
+			texPos := (float64(drawStart) - fsh/2.0 + wallHeight/2.0 - vOffset) * step
 
 			for y := drawStart; y < drawEnd; y++ {
 				texY := int(texPos) & (texH - 1)
@@ -699,8 +744,9 @@ func (rc *Raycaster) drawSprites(sprites []*Sprite) {
 		spriteHeight := (sh / perpDist) * s.Scale
 		spriteWidth := spriteHeight // square sprites
 
-		// Vertical center offset by sprite Z.
-		drawStartY := (sh-spriteHeight)/2.0 + s.Z*sh/perpDist
+		// Vertical center offset by sprite Z, plus player jump height so
+		// grounded sprites stay anchored to the floor as the camera rises.
+		drawStartY := (sh-spriteHeight)/2.0 + s.Z*sh/perpDist + rc.Player.Z*sh/perpDist
 		drawEndY := drawStartY + spriteHeight
 
 		// Horizontal bounds.

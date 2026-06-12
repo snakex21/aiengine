@@ -716,6 +716,12 @@ func (app *App) update(dt float64) {
 		app.player.Y = newY
 	}
 
+	// Vertical movement: jumping and gravity.
+	if app.inputManager.IsJustPressed("jump") {
+		app.player.Jump()
+	}
+	app.player.UpdateVertical(dt)
+
 	// Mouse look.
 	cx, cy := app.window.GetCursorPos()
 	if !app.mouseInit {
@@ -730,7 +736,7 @@ func (app *App) update(dt float64) {
 	}
 	app.prevMouseX = cx
 	app.prevMouseY = cy
-	app.scriptEngine.SetPlayerPosition(app.player.X, app.player.Y, 0)
+	app.scriptEngine.SetPlayerPosition(app.player.X, app.player.Y, app.player.Z)
 
 	moving := moveX != 0 || moveY != 0
 	app.updatePlayerAnimation(dt, moving)
