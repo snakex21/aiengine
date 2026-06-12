@@ -293,7 +293,7 @@ func TraceHitscan(
 		}
 
 		// Simple sphere-AABB test for each part.
-		entPos := systems.Vec3{e.X, e.Y, e.Z}
+		entPos := systems.Vec3{X: e.X, Y: e.Y, Z: e.Z}
 		dist := entPos.Sub(origin).Length()
 		if dist > maxRange {
 			continue
@@ -420,9 +420,9 @@ func ApplySpread(direction systems.Vec3, spreadRadians float64) systems.Vec3 {
 
 	// Compute perpendicular vectors to the direction.
 	dir := direction.Normalize()
-	up := systems.Vec3{0, 0, 1}
+	up := systems.Vec3{X: 0, Y: 0, Z: 1}
 	if math.Abs(dir.Dot(up)) > 0.99 {
-		up = systems.Vec3{0, 1, 0}
+		up = systems.Vec3{X: 0, Y: 1, Z: 0}
 	}
 	right := dir.Cross(up).Normalize()
 	perpendicularUp := right.Cross(dir).Normalize()

@@ -198,7 +198,7 @@ func TestWeaponManager(t *testing.T) {
 }
 
 func TestApplySpread(t *testing.T) {
-	dir := systems.Vec3{1, 0, 0}
+	dir := systems.Vec3{X: 1, Y: 0, Z: 0}
 	spread := ApplySpread(dir, 0.1)
 
 	// Spread vector should be approximately normalized.

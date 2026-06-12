@@ -243,7 +243,7 @@ func ParseAnimation(node *parser.AIENode) *Animation {
 }
 
 func parseTransform(partName, value string) Transform {
-	t := Transform{Scale: systems.Vec3{1, 1, 1}}
+	t := Transform{Scale: systems.Vec3{X: 1, Y: 1, Z: 1}}
 	fields := splitFields(value)
 
 	if len(fields) < 2 {
@@ -255,9 +255,9 @@ func parseTransform(partName, value string) Transform {
 	case "ROT":
 		if len(fields) >= 4 {
 			t.Rotate = systems.Vec3{
-				parseFloat(fields[1]),
-				parseFloat(fields[2]),
-				parseFloat(fields[3]),
+				X: parseFloat(fields[1]),
+				Y: parseFloat(fields[2]),
+				Z: parseFloat(fields[3]),
 			}
 		}
 	case "SHAKE":
@@ -267,9 +267,9 @@ func parseTransform(partName, value string) Transform {
 	case "SCALE":
 		if len(fields) >= 4 {
 			t.Scale = systems.Vec3{
-				parseFloat(fields[1]),
-				parseFloat(fields[2]),
-				parseFloat(fields[3]),
+				X: parseFloat(fields[1]),
+				Y: parseFloat(fields[2]),
+				Z: parseFloat(fields[3]),
 			}
 		}
 	}
@@ -619,7 +619,7 @@ func SpawnEntity(def *EntityDef, id string, x, y, z, angle float64) *Entity {
 	}
 
 	// Create rigidbody.
-	pos := systems.Vec3{x, y, z}
+	pos := systems.Vec3{X: x, Y: y, Z: z}
 	e.Rigidbody = systems.NewRigidbody(pos, 70) // 70kg default
 
 	return e
