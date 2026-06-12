@@ -37,8 +37,8 @@ type Engine struct {
 	Entities map[string]*EntityState
 
 	// Map.
-	MapName  string
-	MapData  *renderer.MapData
+	MapName   string
+	MapData   *renderer.MapData
 	Raycaster *renderer.Raycaster
 	Sprites   *[]*renderer.Sprite
 
@@ -57,10 +57,10 @@ type Engine struct {
 	AudioPlayer  AudioPlayer // interface to avoid circular import
 
 	// UI state.
-	HUDVisible   bool
-	MessageText  string
+	HUDVisible     bool
+	MessageText    string
 	MessageVisible bool
-	CurrentMenu  string
+	CurrentMenu    string
 
 	// Effects.
 	Effects *renderer.EffectsConfig
@@ -87,10 +87,10 @@ type EntityState struct {
 
 // TriggerState holds trigger condition and action data.
 type TriggerState struct {
-	Name       string
-	Condition  string
-	Actions    []string
-	Triggered  bool
+	Name      string
+	Condition string
+	Actions   []string
+	Triggered bool
 }
 
 // TimerState tracks a named timer.

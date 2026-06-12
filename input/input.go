@@ -121,7 +121,7 @@ func (m *Manager) SetDefaults() {
 		{"move_backward", glfw.KeyS},
 		{"move_left", glfw.KeyA},
 		{"move_right", glfw.KeyD},
-		{"shoot", glfw.KeyLeftControl},    // represented as MOUSE_LEFT in config, but GLFW mouse is separate
+		{"shoot", glfw.KeyLeftControl}, // represented as MOUSE_LEFT in config, but GLFW mouse is separate
 		{"reload", glfw.KeyR},
 		{"fullscreen", glfw.KeyF11},
 		{"pause", glfw.KeyEscape},

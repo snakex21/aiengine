@@ -16,11 +16,11 @@ import (
 
 // CutsceneCommand represents a single step in a cutscene timeline.
 type CutsceneCommand struct {
-	Type     string // CAMERA_MOVE, TEXT, SPAWN, WAIT, etc.
-	Params   []string
+	Type        string // CAMERA_MOVE, TEXT, SPAWN, WAIT, etc.
+	Params      []string
 	FloatParams []float64
-	Duration float64
-	Executed bool
+	Duration    float64
+	Executed    bool
 }
 
 // Cutscene is a sequence of commands loaded from .aie.
@@ -30,13 +30,13 @@ type Cutscene struct {
 	Level    int // 1-4 complexity level
 
 	// Runtime state.
-	CurrentCmd  int
-	Timer       float64
-	Playing     bool
-	Paused      bool
-	WaitForKey  bool
-	KeyPressed  bool
-	StartedAt   time.Time
+	CurrentCmd int
+	Timer      float64
+	Playing    bool
+	Paused     bool
+	WaitForKey bool
+	KeyPressed bool
+	StartedAt  time.Time
 }
 
 // CutscenePlayer manages cutscene playback.
@@ -388,8 +388,8 @@ func (cp *CutscenePlayer) executeCommand(cmd *CutsceneCommand) {
 // CreateIntroCutscene builds a simple level-1 intro cutscene.
 func CreateIntroCutscene(title string, messages []string) *Cutscene {
 	cs := &Cutscene{
-		Name:      "intro",
-		Level:     1,
+		Name:       "intro",
+		Level:      1,
 		WaitForKey: true,
 	}
 

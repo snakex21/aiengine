@@ -18,19 +18,19 @@ import (
 type WaveformType int
 
 const (
-	WaveSine     WaveformType = iota
+	WaveSine WaveformType = iota
 	WaveSquare
 	WaveSawtooth
 	WaveTriangle
-	WaveNoise     // white noise
-	WaveImpact    // short burst with fast decay
-	WaveClick     // single sharp tick
+	WaveNoise  // white noise
+	WaveImpact // short burst with fast decay
+	WaveClick  // single sharp tick
 )
 
 // SoundDef describes a procedural sound as parsed from .aie SOUND blocks.
 type SoundDef struct {
 	Name       string
-	Type       string  // "impact", "click", "noise", or custom
+	Type       string // "impact", "click", "noise", or custom
 	Waveform   WaveformType
 	Frequency  float64 // Hz
 	Decay      float64 // seconds
@@ -175,7 +175,7 @@ func (sd *SoundDef) GenerateSamples(sampleRate int) []float32 {
 				sample = -1.0
 			}
 		case WaveSawtooth:
-			sample = 2.0*(freq*t-math.Floor(freq*t+0.5))
+			sample = 2.0 * (freq*t - math.Floor(freq*t+0.5))
 		case WaveTriangle:
 			sample = 2.0*math.Abs(2.0*(freq*t-math.Floor(freq*t+0.5))) - 1.0
 		case WaveNoise:
@@ -247,7 +247,7 @@ func (sd *SoundDef) GenerateSamples(sampleRate int) []float32 {
 // AudioClip is a playing or playable sound instance.
 type AudioClip struct {
 	Samples    []float32
-	Position   int     // current playback position in samples
+	Position   int // current playback position in samples
 	Volume     float32
 	Pitch      float32 // speed multiplier
 	Loop       bool

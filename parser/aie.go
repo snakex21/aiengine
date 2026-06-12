@@ -45,7 +45,7 @@ var blockKeywords = map[string]bool{
 	"GRID": true, "GENERATE": true, "ZONE": true,
 	"HP_PARTS": true, "HP_PHASES": true, "DAMAGE_PARTS": true,
 	"BEHAVIOR": true, "ANIM": true, "MAP_PROPS": true,
-	"PLACE": true,
+	"PLACE":   true,
 	"TRIGGER": true, "CUTSCENE": true, "SOUND": true,
 }
 
@@ -59,7 +59,7 @@ var blockWithValueKeywords = map[string]bool{
 	"SHAKE_CAMERA": true, "FREEZE_PLAYER": true, "UNFREEZE_PLAYER": true,
 	"PLAY_SOUND": true, "WAIT": true, "FADE_IN": true, "FADE_OUT": true,
 	"NEXT_ON_KEY": true, "LUA": true,
-	"MUSIC": true,
+	"MUSIC":    true,
 	"ENVELOPE": true, "WAVEFORM": true, "FILTER": true,
 	"ON_DAMAGE": true, "ON_50HP": true, "ON_DEATH": true,
 	"GRAVITY": true, "ROOMS": true, "CORRIDORS": true, "ENEMY_COUNT": true,

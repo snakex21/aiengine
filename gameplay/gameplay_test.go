@@ -242,8 +242,8 @@ func TestHPSystemDamage(t *testing.T) {
 
 func TestHPWeakSpotMultiplier(t *testing.T) {
 	state := &HPState{
-		Global: 100,
-		Max:    100,
+		Global:    100,
+		Max:       100,
 		WeakSpots: map[string]float64{"HEAD": 3.0},
 	}
 	hs := &HPSystem{}
@@ -257,7 +257,7 @@ func TestHPArmorReduction(t *testing.T) {
 	state := &HPState{
 		Global: 100,
 		Max:    100,
-		Armor: map[string]float64{"TORSO": 0.5},
+		Armor:  map[string]float64{"TORSO": 0.5},
 	}
 	hs := &HPSystem{}
 	result := hs.applyDamage(state, 40, "TORSO")

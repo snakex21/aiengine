@@ -17,11 +17,11 @@ type HPSystem struct {
 
 // HPState tracks health for a single entity or the player.
 type HPState struct {
-	Global    float64
-	Max       float64
-	Parts     map[string]*PartHP
-	Phases    []HPPhaseState
-	RegenRate float64
+	Global     float64
+	Max        float64
+	Parts      map[string]*PartHP
+	Phases     []HPPhaseState
+	RegenRate  float64
 	RegenDelay float64
 	RegenTimer float64
 
@@ -131,7 +131,7 @@ type DamageResult struct {
 	PartHit       string
 	PartDestroyed bool
 	Killed        bool
-	PhaseChanged  int  // 0 = no change, >0 = new phase number
+	PhaseChanged  int // 0 = no change, >0 = new phase number
 	Effects       []string
 }
 
@@ -262,19 +262,19 @@ func GetPartEffect(part string, eventType string) string {
 			"ON_50HP":   "heavy_breathing",
 		},
 		"ARM_LEFT": {
-			"ON_DEATH": "drop_weapon",
+			"ON_DEATH":  "drop_weapon",
 			"ON_DAMAGE": "aim_penalty",
 		},
 		"ARM_RIGHT": {
-			"ON_DEATH": "drop_weapon",
+			"ON_DEATH":  "drop_weapon",
 			"ON_DAMAGE": "aim_penalty",
 		},
 		"LEG_LEFT": {
-			"ON_DEATH": "limp",
+			"ON_DEATH":  "limp",
 			"ON_DAMAGE": "slow_move",
 		},
 		"LEG_RIGHT": {
-			"ON_DEATH": "limp",
+			"ON_DEATH":  "limp",
 			"ON_DAMAGE": "slow_move",
 		},
 	}

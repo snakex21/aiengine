@@ -75,13 +75,13 @@ func DeserializePacket(data []byte) (*NetworkPacket, error) {
 
 // PlayerNetState is the data synced for each player.
 type PlayerNetState struct {
-	ID       uint32
-	X, Y, Z  float64
-	Angle    float64
-	HP       float32
-	Alive    bool
-	Weapon   string
-	SeqNum   uint32 // sequence number for ordering
+	ID      uint32
+	X, Y, Z float64
+	Angle   float64
+	HP      float32
+	Alive   bool
+	Weapon  string
+	SeqNum  uint32 // sequence number for ordering
 }
 
 // SerializePlayerState packs player state into bytes.
@@ -153,7 +153,7 @@ type GameServer struct {
 	MaxPlayers int
 	Mode       string // "coop", "deathmatch", etc.
 
-	udpConn  *net.UDPConn
+	udpConn     *net.UDPConn
 	tcpListener *net.TCPListener
 
 	Players map[uint32]*RemotePlayer
@@ -391,8 +391,8 @@ type GameClient struct {
 	PlayerID    uint32
 	LocalPlayer PlayerNetState
 
-	udpConn     *net.UDPConn
-	serverAddr  *net.UDPAddr
+	udpConn       *net.UDPConn
+	serverAddr    *net.UDPAddr
 	RemotePlayers map[uint32]*PlayerNetState
 
 	Connected bool
@@ -400,9 +400,9 @@ type GameClient struct {
 	quit      chan struct{}
 
 	// Callbacks.
-	OnWorldState  func(players []PlayerNetState)
-	OnEvent       func(eventType string, data []byte)
-	OnChat        func(playerID uint32, message string)
+	OnWorldState   func(players []PlayerNetState)
+	OnEvent        func(eventType string, data []byte)
+	OnChat         func(playerID uint32, message string)
 	OnDisconnected func()
 }
 

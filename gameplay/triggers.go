@@ -23,9 +23,9 @@ type Trigger struct {
 
 // TriggerCondition represents a game state check.
 type TriggerCondition struct {
-	Type    string // e.g., "all_enemies_dead", "player_enters", "hp_below"
-	Param   string // zone name, threshold value, etc.
-	Param2  string
+	Type   string // e.g., "all_enemies_dead", "player_enters", "hp_below"
+	Param  string // zone name, threshold value, etc.
+	Param2 string
 }
 
 // TriggerAction represents something to execute when conditions are met.
@@ -115,22 +115,22 @@ func evaluateCondition(cond *TriggerCondition, ctx *TriggerContext) bool {
 
 // TriggerExecutor handles running trigger actions against the game state.
 type TriggerExecutor struct {
-	OnUnlockDoor  func(id string)
-	OnLockDoor    func(id string)
-	OnPlaySound   func(file string)
-	OnPlayMusic   func(file string)
-	OnStopMusic   func()
-	OnShowMessage func(text string)
-	OnHideMessage func()
-	OnStartLua    func(funcName string)
-	OnSetVar      func(name string, value interface{})
-	OnWinGame     func()
-	OnLoseGame    func()
+	OnUnlockDoor     func(id string)
+	OnLockDoor       func(id string)
+	OnPlaySound      func(file string)
+	OnPlayMusic      func(file string)
+	OnStopMusic      func()
+	OnShowMessage    func(text string)
+	OnHideMessage    func()
+	OnStartLua       func(funcName string)
+	OnSetVar         func(name string, value interface{})
+	OnWinGame        func()
+	OnLoseGame       func()
 	OnTeleportPlayer func(x, y, z float64)
-	OnEarthquake  func(intensity, duration float64)
-	OnChangeMusic func(file string)
-	OnSpawnEnemy  func(typ string, x, y, z float64)
-	OnSpawnProp   func(typ string, x, y, z float64)
+	OnEarthquake     func(intensity, duration float64)
+	OnChangeMusic    func(file string)
+	OnSpawnEnemy     func(typ string, x, y, z float64)
+	OnSpawnProp      func(typ string, x, y, z float64)
 }
 
 // Execute runs all actions for a trigger.
@@ -251,11 +251,11 @@ type TriggerRegistry struct {
 func NewTriggerRegistry() *TriggerRegistry {
 	return &TriggerRegistry{
 		context: &TriggerContext{
-			Vars:        make(map[string]interface{}),
-			Timers:      make(map[string]float64),
-			ItemPicked:  make(map[string]bool),
+			Vars:          make(map[string]interface{}),
+			Timers:        make(map[string]float64),
+			ItemPicked:    make(map[string]bool),
 			ButtonPressed: make(map[string]bool),
-			EnemyDead:   make(map[string]bool),
+			EnemyDead:     make(map[string]bool),
 		},
 	}
 }

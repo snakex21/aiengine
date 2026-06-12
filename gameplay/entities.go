@@ -16,7 +16,7 @@ import (
 type EntityType int
 
 const (
-	EntHumanoid  EntityType = iota
+	EntHumanoid EntityType = iota
 	EntCreature
 	EntVehicle
 	EntProp
@@ -187,23 +187,23 @@ func ParseBodyPart(key, value string) BodyPart {
 
 // AnimKeyframe holds a single keyframe in an animation.
 type AnimKeyframe struct {
-	Frame int
+	Frame      int
 	Transforms map[string]Transform // body part → transform
 }
 
 // Transform describes a spatial transformation for a body part.
 type Transform struct {
-	Rotate  systems.Vec3
-	Shake   float64
-	Scale   systems.Vec3
+	Rotate systems.Vec3
+	Shake  float64
+	Scale  systems.Vec3
 }
 
 // Animation is a named sequence of keyframes.
 type Animation struct {
-	Name      string
-	Frames    []AnimKeyframe
-	Loop      bool
-	Speed     float64
+	Name   string
+	Frames []AnimKeyframe
+	Loop   bool
+	Speed  float64
 }
 
 // ParseAnimation creates an Animation from a parsed .aie ANIM node.
@@ -280,33 +280,33 @@ func parseTransform(partName, value string) Transform {
 
 // BehaviorFlags holds special entity behaviors.
 type BehaviorFlags struct {
-	Rideable         bool
-	Boss             bool
-	FireBreath       bool
-	SplitOnDeath     bool
-	SplitOnDeathCount int
-	SplitOnDamage    bool
+	Rideable               bool
+	Boss                   bool
+	FireBreath             bool
+	SplitOnDeath           bool
+	SplitOnDeathCount      int
+	SplitOnDamage          bool
 	SplitOnDamageThreshold float64
-	Segments         bool
-	SegmentCount     int
-	Regenerate       bool
-	RegenerateRate   float64
-	PhaseThroughWalls bool
-	Swarm            bool
-	SwarmCount       int
-	Burrow           bool
-	ClimbWalls       bool
-	Fly              bool
-	FlyHeight        float64
+	Segments               bool
+	SegmentCount           int
+	Regenerate             bool
+	RegenerateRate         float64
+	PhaseThroughWalls      bool
+	Swarm                  bool
+	SwarmCount             int
+	Burrow                 bool
+	ClimbWalls             bool
+	Fly                    bool
+	FlyHeight              float64
 
 	// Death behavior.
-	DeathType    DeathBehaviorType
-	ShatterParts int
-	DissolveTime float64
-	Earthquake   bool
+	DeathType           DeathBehaviorType
+	ShatterParts        int
+	DissolveTime        float64
+	Earthquake          bool
 	EarthquakeIntensity float64
-	Sparks       bool
-	SparksDuration float64
+	Sparks              bool
+	SparksDuration      float64
 }
 
 // DefaultBehaviorFlags returns sensible defaults for a given subtype.
@@ -412,17 +412,17 @@ func ParseBehaviorFlags(child *parser.AIENode, bf *BehaviorFlags) {
 // EntityDef is the template for creating an entity instance.
 // Built from .aie parsing.
 type EntityDef struct {
-	Name     string
-	Type     EntityType
-	SubType  SubType
-	HP       float64
-	MaxHP    float64
+	Name    string
+	Type    EntityType
+	SubType SubType
+	HP      float64
+	MaxHP   float64
 
 	// Body parts.
-	Parts    []BodyPart
+	Parts []BodyPart
 
 	// HP per body part.
-	HPParts  map[string]float64
+	HPParts map[string]float64
 
 	// HP phases (boss fights).
 	HPPhases []HPPhase
@@ -453,15 +453,15 @@ type HPPhase struct {
 // ParseEntityDef creates an EntityDef from a parsed .aie entity node.
 func ParseEntityDef(node *parser.AIENode) *EntityDef {
 	ed := &EntityDef{
-		Name:        node.Name,
-		SubType:     ParseSubType(node.Type),
-		Parts:       make([]BodyPart, 0),
-		HPParts:     make(map[string]float64),
-		HPPhases:    make([]HPPhase, 0),
-		WeakSpots:   make(map[string]float64),
-		Armor:       make(map[string]float64),
-		Animations:  make(map[string]*Animation),
-		CSSClass:    node.Name,
+		Name:       node.Name,
+		SubType:    ParseSubType(node.Type),
+		Parts:      make([]BodyPart, 0),
+		HPParts:    make(map[string]float64),
+		HPPhases:   make([]HPPhase, 0),
+		WeakSpots:  make(map[string]float64),
+		Armor:      make(map[string]float64),
+		Animations: make(map[string]*Animation),
+		CSSClass:   node.Name,
 	}
 
 	// Determine top-level type.
@@ -590,7 +590,7 @@ type DeathBehaviorState struct {
 type DeathBehaviorType int
 
 const (
-	DeathRagdoll  DeathBehaviorType = iota
+	DeathRagdoll DeathBehaviorType = iota
 	DeathDissolve
 	DeathExplode
 	DeathCollapse

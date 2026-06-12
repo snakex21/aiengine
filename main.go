@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	WindowTitle        = "AIEngine"
+	WindowTitle       = "AIEngine"
 	DefaultProjectDir = "projects/demo"
 )
 

@@ -57,8 +57,8 @@ func TestAutoCrop_TrimsEmptyEdges(t *testing.T) {
 func TestAutoCrop_ExcludesBlack(t *testing.T) {
 	// Black pixel (R+G+B = 0) should be treated as empty margin.
 	img := image.NewRGBA(image.Rect(0, 0, 5, 5))
-	img.SetRGBA(0, 0, color.RGBA{0, 0, 0, 255})         // black – ignored
-	img.SetRGBA(4, 4, color.RGBA{255, 0, 0, 255})       // red – content
+	img.SetRGBA(0, 0, color.RGBA{0, 0, 0, 255})   // black – ignored
+	img.SetRGBA(4, 4, color.RGBA{255, 0, 0, 255}) // red – content
 
 	out := AutoCrop(img)
 	b := out.Bounds()

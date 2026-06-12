@@ -18,7 +18,7 @@ import (
 type WeaponType int
 
 const (
-	WpnMelee    WeaponType = iota
+	WpnMelee WeaponType = iota
 	WpnPistol
 	WpnShotgun
 	WpnRifle
@@ -30,26 +30,26 @@ const (
 
 // WeaponDef is a weapon template loaded from .aie.
 type WeaponDef struct {
-	Name         string
-	Type         WeaponType
-	Damage       float64
-	DamageParts  map[string]float64 // per-body-part damage
-	Range        float64
-	FireRate     float64 // shots per second
-	ReloadTime   float64
-	AmmoMax      int // magazine size
-	AmmoReserve  int // total spare ammo
-	Spread       float64 // radians
-	Recoil       float64
-	BulletDrop   bool
+	Name              string
+	Type              WeaponType
+	Damage            float64
+	DamageParts       map[string]float64 // per-body-part damage
+	Range             float64
+	FireRate          float64 // shots per second
+	ReloadTime        float64
+	AmmoMax           int     // magazine size
+	AmmoReserve       int     // total spare ammo
+	Spread            float64 // radians
+	Recoil            float64
+	BulletDrop        bool
 	BulletDropGravity float64
-	BulletSpeed  float64
-	Penetration  int    // how many enemies it can pierce
-	Noise        float64 // 0-1, lower = quieter
-	AutoFire     bool
-	Burst        int  // bullets per shot (shotgun pellets)
-	Zoom         float64
-	Weight       float64
+	BulletSpeed       float64
+	Penetration       int     // how many enemies it can pierce
+	Noise             float64 // 0-1, lower = quieter
+	AutoFire          bool
+	Burst             int // bullets per shot (shotgun pellets)
+	Zoom              float64
+	Weight            float64
 }
 
 // ParseWeaponDef creates a WeaponDef from a parsed .aie WEAPON node.
@@ -253,11 +253,11 @@ func (wi *WeaponInstance) Update(dt float64) {
 
 // HitscanResult holds the result of a weapon trace.
 type HitscanResult struct {
-	Hit       bool
-	Entity    *Entity
-	Distance  float64
-	Point     systems.Vec3
-	BodyPart  string // which body part was hit (if entity)
+	Hit      bool
+	Entity   *Entity
+	Distance float64
+	Point    systems.Vec3
+	BodyPart string // which body part was hit (if entity)
 }
 
 // TraceHitscan performs a hitscan from origin in direction.
@@ -439,9 +439,9 @@ func ApplySpread(direction systems.Vec3, spreadRadians float64) systems.Vec3 {
 
 // WeaponManager manages the player's weapon inventory.
 type WeaponManager struct {
-	Weapons     []*WeaponInstance
-	CurrentIdx  int
-	defs        map[string]*WeaponDef
+	Weapons    []*WeaponInstance
+	CurrentIdx int
+	defs       map[string]*WeaponDef
 }
 
 // NewWeaponManager creates a weapon manager with default weapon defs.
@@ -548,21 +548,21 @@ func CreateDefaultWeaponDefs() map[string]*WeaponDef {
 			Burst:       1,
 		},
 		"sniper": {
-			Name:        "sniper",
-			Type:        WpnSniper,
-			Damage:      150,
-			Range:       200,
-			FireRate:    0.7,
-			ReloadTime:  3.0,
-			AmmoMax:     5,
-			AmmoReserve: 20,
-			BulletDrop:  true,
+			Name:              "sniper",
+			Type:              WpnSniper,
+			Damage:            150,
+			Range:             200,
+			FireRate:          0.7,
+			ReloadTime:        3.0,
+			AmmoMax:           5,
+			AmmoReserve:       20,
+			BulletDrop:        true,
 			BulletDropGravity: 9.8,
-			BulletSpeed: 900,
-			Zoom:        4.0,
-			Noise:       0.1,
-			Weight:      5.0,
-			Burst:       1,
+			BulletSpeed:       900,
+			Zoom:              4.0,
+			Noise:             0.1,
+			Weight:            5.0,
+			Burst:             1,
 		},
 	}
 }

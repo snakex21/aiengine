@@ -362,10 +362,10 @@ type RagdollBone struct {
 
 // Ragdoll represents a chain of bones for death physics.
 type Ragdoll struct {
-	Bones        []*RagdollBone
-	Gravity      float64
-	Damping      float64
-	Iterations   int // constraint solver iterations
+	Bones      []*RagdollBone
+	Gravity    float64
+	Damping    float64
+	Iterations int // constraint solver iterations
 }
 
 // NewRagdoll creates a ragdoll from a chain of positions.
@@ -455,23 +455,23 @@ type DeathBehaviorType int
 
 const (
 	DeathRagdoll  DeathBehaviorType = iota // fall limp
-	DeathDissolve                           // fade away
-	DeathExplode                            // burst outward
-	DeathCollapse                           // sink down
-	DeathShatter                            // break into pieces
+	DeathDissolve                          // fade away
+	DeathExplode                           // burst outward
+	DeathCollapse                          // sink down
+	DeathShatter                           // break into pieces
 )
 
 // DeathBehavior configures what happens when an entity dies.
 type DeathBehavior struct {
-	Type           DeathBehaviorType
-	Ragdoll        *Ragdoll
-	DissolveTime   float64
-	ExplodeForce   float64
-	CollapseSpeed  float64
-	ShatterPieces  int
+	Type                DeathBehaviorType
+	Ragdoll             *Ragdoll
+	DissolveTime        float64
+	ExplodeForce        float64
+	CollapseSpeed       float64
+	ShatterPieces       int
 	EarthquakeIntensity float64
-	Active         bool
-	Timer          float64
+	Active              bool
+	Timer               float64
 }
 
 // UpdateDeathBehavior advances death animation timers.

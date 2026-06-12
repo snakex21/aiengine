@@ -83,8 +83,8 @@ var wallColors = map[MapCell]color.RGBA{
 	CellDoor:  {139, 90, 43, 255},   // wood: brown
 }
 
-var ceilColor = color.RGBA{20, 20, 30, 255}   // dark blue-grey
-var floorColor = color.RGBA{40, 35, 30, 255}  // dark brown
+var ceilColor = color.RGBA{20, 20, 30, 255}  // dark blue-grey
+var floorColor = color.RGBA{40, 35, 30, 255} // dark brown
 
 // --- Raycaster ---
 
@@ -530,8 +530,12 @@ func (rc *Raycaster) drawHUD(sw, sh int) {
 	}
 	if rc.HUDMaxHP > 0 {
 		ratio := float64(rc.HUDHP) / float64(rc.HUDMaxHP)
-		if ratio < 0 { ratio = 0 }
-		if ratio > 1 { ratio = 1 }
+		if ratio < 0 {
+			ratio = 0
+		}
+		if ratio > 1 {
+			ratio = 1
+		}
 		fillW := int(float64(barW) * ratio)
 		for y := barY; y < barY+barH; y++ {
 			for x := barX; x < barX+fillW; x++ {
@@ -563,8 +567,12 @@ func (rc *Raycaster) drawHUD(sw, sh int) {
 	}
 	if rc.HUDAmmoMax > 0 {
 		ratio := float64(rc.HUDAmmo) / float64(rc.HUDAmmoMax)
-		if ratio < 0 { ratio = 0 }
-		if ratio > 1 { ratio = 1 }
+		if ratio < 0 {
+			ratio = 0
+		}
+		if ratio > 1 {
+			ratio = 1
+		}
 		fillW := int(float64(ammoW) * ratio)
 		for y := ammoY; y < ammoY+ammoH; y++ {
 			for x := ammoX; x < ammoX+fillW; x++ {
@@ -619,7 +627,7 @@ func (rc *Raycaster) drawSprites(sprites []*Sprite) {
 
 	// Pre-compute sprite data: Euclidean distance + perpendicular distance.
 	type spriteData struct {
-		s       *Sprite
+		s        *Sprite
 		euclDist float64 // Euclidean distance (for sorting)
 		perpDist float64 // perpendicular distance (for Z-buffer & height)
 		screenX  float64 // screen X center
@@ -657,7 +665,7 @@ func (rc *Raycaster) drawSprites(sprites []*Sprite) {
 		}
 
 		// Screen X: map angular offset to screen columns.
-		screenX := (sw / 2.0) + (delta / halfFOV) * (sw / 2.0)
+		screenX := (sw / 2.0) + (delta/halfFOV)*(sw/2.0)
 
 		sorted = append(sorted, spriteData{
 			s:        s,

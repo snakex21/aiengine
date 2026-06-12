@@ -16,8 +16,8 @@ import (
 	"sync"
 	"time"
 
-	mp3 "github.com/hajimehoshi/go-mp3"
 	oto "github.com/ebitengine/oto/v3"
+	mp3 "github.com/hajimehoshi/go-mp3"
 	"github.com/jfreymuth/oggvorbis"
 )
 
@@ -56,11 +56,11 @@ func (sc *SoundCache) Has(name string) bool {
 type AudioBackend struct {
 	mu sync.Mutex
 
-	sampleRate  int
-	ctx         *oto.Context
-	cache       *SoundCache
-	soundDefs   map[string]SoundDef
-	soundPaths  []string
+	sampleRate int
+	ctx        *oto.Context
+	cache      *SoundCache
+	soundDefs  map[string]SoundDef
+	soundPaths []string
 
 	// Active players (for cleanup).
 	players []*oto.Player
@@ -159,9 +159,9 @@ func (ab *AudioBackend) RegisterLive(name string, sd SoundDef) {
 // --- Playback ---
 
 // PlaySound plays a sound by name. Resolution order:
-//   1. Cache hit → play immediately
-//   2. File exists on disk → load, cache, play
-//   3. Procedural def (cached or live) → generate, play
+//  1. Cache hit → play immediately
+//  2. File exists on disk → load, cache, play
+//  3. Procedural def (cached or live) → generate, play
 func (ab *AudioBackend) PlaySound(name string) {
 	// 1. Check cache.
 	if data, ok := ab.cache.Get(name); ok {

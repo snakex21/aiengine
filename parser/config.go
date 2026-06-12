@@ -15,9 +15,9 @@ import (
 
 // Config holds all parsed settings from a config.aie file.
 type Config struct {
-	Bindings  []Binding // keybinding entries
-	Server    ServerConfig
-	Client    ClientConfig
+	Bindings []Binding // keybinding entries
+	Server   ServerConfig
+	Client   ClientConfig
 
 	// Window settings.
 	WindowWidth  int // default 640
@@ -34,10 +34,10 @@ type Binding struct {
 
 // ServerConfig holds server-related settings.
 type ServerConfig struct {
-	Port      int
+	Port       int
 	MaxPlayers int
-	Mode      string
-	Map       string
+	Mode       string
+	Map        string
 }
 
 // ClientConfig holds client connection settings.

@@ -19,9 +19,9 @@ type Sprite struct {
 
 // SpriteBatch manages a collection of sprites and renders them efficiently.
 type SpriteBatch struct {
-	sprites  []*Sprite
-	texMgr   *TextureManager
-	rc       *Raycaster
+	sprites []*Sprite
+	texMgr  *TextureManager
+	rc      *Raycaster
 }
 
 // NewSpriteBatch creates a sprite batch linked to a raycaster.
