@@ -4,6 +4,7 @@ import (
 	"aiengine/renderer"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestTimedMessageAutoHides(t *testing.T) {
@@ -123,5 +124,40 @@ func TestSetFilterFromLuaAndDefaultMessageDuration(t *testing.T) {
 	}
 	if e.MessageTTL != DefaultMessageSeconds {
 		t.Fatalf("MessageTTL = %v", e.MessageTTL)
+	}
+}
+
+func TestTimersRunOnGameTimeOnly(t *testing.T) {
+	e := NewEngine()
+	lb := NewLuaBridge(e)
+	defer lb.Close()
+	if err := lb.DoString(`
+		fired = 0
+		registerEvent("onTimer", function(name) if name == "boom" then fired = fired + 1 end end)
+		startTimer("boom", 1.0)
+	`); err != nil {
+		t.Fatal(err)
+	}
+	e.Advance(0.6)
+	time.Sleep(30 * time.Millisecond) // "paused": wall time passes, game time does not
+	e.TickTimers()
+	if lb.L.GetGlobal("fired").String() != "0" || e.IsTimerElapsed("boom") {
+		t.Fatal("timer fired before 1 s of game time")
+	}
+	if got := e.GetTime(); got != 0.6 {
+		t.Fatalf("GetTime = %v, want 0.6", got)
+	}
+	e.Advance(0.5)
+	if lb.L.GetGlobal("fired").String() != "1" {
+		t.Fatal("timer did not fire after 1.1 s of game time")
+	}
+}
+
+func TestSpawnEnemyIDsAreUnique(t *testing.T) {
+	e := NewEngine()
+	a := e.SpawnEnemy("grunt", 1, 1, 0)
+	b := e.SpawnEnemy("grunt", 2, 2, 0)
+	if a == b || len(e.Entities) != 2 {
+		t.Fatalf("ids %q %q, entities %d", a, b, len(e.Entities))
 	}
 }

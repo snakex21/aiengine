@@ -704,9 +704,6 @@ func (app *App) run() {
 
 		if !app.paused {
 			app.update(app.deltaTime)
-			if app.jsBridge != nil {
-				app.jsBridge.Tick(app.deltaTime)
-			}
 		}
 		app.render()
 
@@ -723,9 +720,6 @@ func (app *App) run() {
 		// CRITICAL: Update input state at END of frame, so IsJustPressed
 		// sees the difference between previous (last frame) and held (just set by PollEvents).
 		app.inputManager.Update()
-
-		// Tick script timers.
-		app.scriptEngine.TickTimers()
 
 		app.window.SwapBuffers()
 	}
@@ -823,6 +817,12 @@ func (app *App) update(dt float64) {
 	}
 	if app.levelEnded() {
 		return
+	}
+	// Game time: script timers (Lua startTimer, JS setTimeout) and getTime
+	// only advance here, so pauses, menus and the console freeze them.
+	app.scriptEngine.Advance(dt)
+	if app.jsBridge != nil {
+		app.jsBridge.Tick(dt)
 	}
 	if app.game == nil {
 		app.scriptEngine.TickMessage(dt)

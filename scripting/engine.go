@@ -5,10 +5,10 @@
 package scripting
 
 import (
+	"fmt"
 	"log"
 	"sort"
 	"sync"
-	"time"
 
 	"aiengine/renderer"
 )
@@ -51,6 +51,11 @@ type Engine struct {
 
 	// Timers.
 	Timers map[string]*TimerState
+
+	// gameTime is simulated time in seconds; it only advances through
+	// Advance, so it stops while the game is paused or in a menu.
+	gameTime float64
+	spawnSeq int
 
 	// Audio placeholders.
 	CurrentMusic string
@@ -112,7 +117,7 @@ type TriggerState struct {
 type TimerState struct {
 	Name     string
 	Duration float64
-	Start    time.Time
+	StartAt  float64 // game time (seconds) when the timer was started
 	Active   bool
 }
 
@@ -283,7 +288,14 @@ func (e *Engine) SetPlayerSpeed(speed float64) {
 
 // SpawnEnemy creates a new enemy entity.
 func (e *Engine) SpawnEnemy(entityType string, x, y, z float64) string {
-	id := entityType + "_" + time.Now().Format("150405.000")
+	e.mu.Lock()
+	e.spawnSeq++
+	id := fmt.Sprintf("%s_%d", entityType, e.spawnSeq)
+	for e.Entities[id] != nil { // never clobber an existing entity
+		e.spawnSeq++
+		id = fmt.Sprintf("%s_%d", entityType, e.spawnSeq)
+	}
+	e.mu.Unlock()
 	e.mu.Lock()
 	e.Entities[id] = &EntityState{
 		ID:    id,
@@ -662,7 +674,7 @@ func (e *Engine) StartTimer(name string, duration float64) {
 	e.Timers[name] = &TimerState{
 		Name:     name,
 		Duration: duration,
-		Start:    time.Now(),
+		StartAt:  e.gameTime,
 		Active:   true,
 	}
 	e.mu.Unlock()
@@ -680,17 +692,31 @@ func (e *Engine) StopTimer(name string) {
 // IsTimerElapsed checks if a timer has expired.
 func (e *Engine) IsTimerElapsed(name string) bool {
 	e.mu.RLock()
+	defer e.mu.RUnlock()
 	t, ok := e.Timers[name]
-	e.mu.RUnlock()
 	if !ok || !t.Active {
 		return false
 	}
-	return time.Since(t.Start).Seconds() >= t.Duration
+	return e.gameTime-t.StartAt >= t.Duration
 }
 
-// GetTime returns elapsed game time in seconds (stub).
+// GetTime returns the game time in seconds: time the simulation has run,
+// excluding pauses and menus (it used to be the wall clock).
 func (e *Engine) GetTime() float64 {
-	return float64(time.Now().UnixMilli()) / 1000.0
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.gameTime
+}
+
+// Advance moves game time forward by dt seconds and fires elapsed timers
+// (onTimer). The host calls it once per simulated frame and not while paused.
+func (e *Engine) Advance(dt float64) {
+	if dt > 0 {
+		e.mu.Lock()
+		e.gameTime += dt
+		e.mu.Unlock()
+	}
+	e.TickTimers()
 }
 
 // --- Camera API (callbacks to renderer) ---
@@ -706,12 +732,13 @@ var OnLookAt func(x, y, z, duration float64)
 
 // --- Timer Tick ---
 
-// TickTimers checks all timers and emits onTimer events for elapsed ones.
+// TickTimers emits onTimer for timers that have elapsed in game time. It does
+// not advance time; use Advance from the game loop.
 func (e *Engine) TickTimers() {
 	e.mu.Lock()
 	var elapsed []string
 	for name, t := range e.Timers {
-		if t.Active && time.Since(t.Start).Seconds() >= t.Duration {
+		if t.Active && e.gameTime-t.StartAt >= t.Duration {
 			elapsed = append(elapsed, name)
 			t.Active = false
 		}
