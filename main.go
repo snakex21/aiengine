@@ -753,8 +753,10 @@ func (app *App) update(dt float64) {
 		app.player.Angle += dx * 0.003
 	}
 	if dy != 0 {
-		// Mouse down (positive dy) looks down → shift horizon up (negative pitch).
-		app.player.AddPitch(-dy * 0.0015)
+		// Moving the mouse up (negative dy) looks up: the world shifts downward
+		// on screen and more ceiling is revealed. Positive pitch = looking up,
+		// applied consistently to the horizon, walls, and sprites.
+		app.player.AddPitch(dy * 0.0015)
 	}
 	app.prevMouseX = cx
 	app.prevMouseY = cy
