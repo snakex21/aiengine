@@ -15,6 +15,7 @@ SCREEN main
   BACKGROUND map 7.4 2.6 160
   MUSIC menu_drone
   HINT "Strzałki/mysz/pad: wybór   Enter: zatwierdź   Esc: wróć"
+  ITEM "Kontynuuj" continue
   ITEM "Nowa gra" new_game
   ITEM "Wybór poziomu" level_select
   ITEM "Jak grać" menu instrukcja
@@ -23,9 +24,9 @@ SCREEN main
 
 SCREEN instrukcja
   TITLE "Jak grać"
-  SUBTITLE "WASD - ruch, mysz - rozglądanie, LPM - różdżka, Esc - pauza"
+  SUBTITLE "WASD - ruch, mysz - rozglądanie, LPM - różdżka, E - drzwi i sekrety, Esc - pauza"
   BACKGROUND dim
-  HINT "Zbierz kryształy, omijaj kwas i strażników, wejdź do portalu"
+  HINT "Kryształy otwierają bramę, klucze - drzwi; relikwie z sekretów dają punkty"
   ITEM "Wróć" back
 
 SCREEN level_select

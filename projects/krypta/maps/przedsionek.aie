@@ -1,0 +1,101 @@
+# maps/przedsionek.aie — Poziom 1: Przedsionek
+# Nauka: drzwi (E), klucz i zamknięte drzwi, ukryty sekret, 4 kryształy.
+
+MAP przedsionek
+PLAYER_ANGLE 0
+PLAYER_HP 100
+FLOOR_COLOR #1E1A24
+CEILING_COLOR #0C0B14
+VAR_TIME_LIMIT 210
+VAR_MUSIC krypta_drone
+INTRO Drzwi otwierasz klawiszem E.|Czerwony klucz otworzy czerwone drzwi.|Niektóre ściany skrywają sekrety - sprawdzaj je klawiszem E.
+OUTRO Przedsionek za tobą. Dalej czeka właściwa krypta.
+
+GRID
+W W W W W W W W W W W W W W W W W W W W
+W P . . . W . . . . . . W . . . . . . W
+W . . . . W . . S . . . W . . S . . . W
+W . . . . D . . . . . . W . . . . . . W
+W W . W W W . . . S . . D . . . . . . W
+W . . . . W W W . W W W W W W . W W W W
+W . . . . . . W . W . . . . . . . . . W
+W . S . . . . W . W . . . . . S . . . W
+W . . . . . . W . W . . . . . . . . . W
+W W W W W W W W . W W W W W W D W W W W
+W . . . . . W . . . W . . . . . . . . W
+W . . S . . W . . . W . . . . . . . . W
+W . . . . . W . . . W . . . . . . . . W
+W W W W W W W W W W W W W W W W W W W W
+
+# Typy przeciwników (wartości domyślne dla PLACE enemy i spawnEnemy)
+PLACE enemy_type straznik 0 0 0 hp=50 speed=0.9 damage=10 sight=5 behavior=chase
+PLACE enemy_type pajak 0 0 0 hp=20 speed=2.2 damage=6 sight=6 behavior=wander atlas=assets/sprites/pajak.png scale=0.55 z=0.22 range=0.7 attack_rate=0.7
+
+PLACE item crystal k1 10.5 0 1.5 bob=0.15
+PLACE item crystal k2 17.5 0 1.5 bob=0.15
+PLACE item crystal k3 11.5 0 7.5 bob=0.15
+PLACE item crystal k4 8.5 0 11.5 bob=0.15
+PLACE item klucz_czerwony kc 5.5 0 6.5 give=klucz_czerwony bob=0.1 scale=0.4
+PLACE item relikwia r1 2.5 0 11.5 give=relikwia bob=0.1 scale=0.4
+PLACE item potion m1 13.5 0 3.5 scale=0.35
+PLACE zone acid kw1 10.5 0 3.5 radius=0.45 sprite=acid scale=0.7
+PLACE door czerwone 12 0 4 key=klucz_czerwony
+PLACE door sekret1 6 0 11 secret=yes
+PLACE door brama 15 0 9
+PLACE enemy straznik s1 4.5 0 7.5 speed=0.7
+PLACE enemy straznik s2 16.5 0 7.5 behavior=guard
+PLACE zone exit portal 17.5 0 11.5 radius=0.6 sprite=portal scale=0.9
+
+SOUND ding
+  WAVEFORM sine
+  FREQUENCY 1320
+  DECAY 0.25
+  VOLUME 0.5
+
+SOUND gate
+  WAVEFORM square
+  FREQUENCY 110
+  DECAY 0.9
+  VOLUME 0.4
+
+SOUND sizzle
+  TYPE noise
+  FREQUENCY 400
+  DECAY 0.15
+  VOLUME 0.3
+
+SOUND heal
+  WAVEFORM triangle
+  FREQUENCY 660
+  DECAY 0.4
+  VOLUME 0.5
+
+SOUND klucz
+  WAVEFORM sine
+  FREQUENCY 880
+  DECAY 0.35
+  VOLUME 0.45
+
+SOUND sekret
+  WAVEFORM triangle
+  FREQUENCY 520
+  DECAY 0.8
+  VOLUME 0.45
+
+SOUND zamek
+  WAVEFORM square
+  FREQUENCY 160
+  DECAY 0.12
+  VOLUME 0.3
+
+SOUND krypta_drone
+  WAVEFORM triangle
+  FREQUENCY 55
+  DECAY 3.5
+  VOLUME 0.25
+
+TRIGGER brama_otwarta
+  CONDITION var_at_least krysztaly 4
+  ACTION unlock_door brama
+  ACTION play_sound gate
+  ACTION show_message "Brama otwarta! Biegnij do portalu"

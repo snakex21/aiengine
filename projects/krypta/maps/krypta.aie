@@ -1,4 +1,4 @@
-# maps/krypta.aie — Kryształowa Krypta
+# maps/krypta.aie — Poziom 2: Kryształowa Krypta
 # Zbierz 6 kryształów, omijaj kałuże kwasu i strażników,
 # a potem uciekaj portalem za runiczną bramą (D).
 #
@@ -13,6 +13,8 @@ FLOOR_COLOR #1E1A24
 CEILING_COLOR #0C0B14
 VAR_TIME_LIMIT 180
 VAR_MUSIC krypta_drone
+INTRO Sześć kryształów, kwas i strażnicy.|Runiczna brama otworzy się dopiero, gdy zbierzesz wszystkie kryształy.
+OUTRO Krypta zostaje w tyle, ale chłód bije z dołu - przed tobą Lodowe Groby.
 
 GRID
 W W W W W W W W W W W W W W W W

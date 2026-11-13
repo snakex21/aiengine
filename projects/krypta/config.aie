@@ -11,6 +11,7 @@ BIND shoot MOUSE_LEFT
 BIND jump SPACE
 BIND crouch C
 BIND sprint LEFT_SHIFT
+BIND interact E
 
 BIND restart ENTER
 BIND fullscreen F11

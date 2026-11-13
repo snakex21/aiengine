@@ -1,0 +1,117 @@
+# maps/zalana_kopalnia.aie — Poziom 4: Zalana Kopalnia
+# Kwas, zasadzki, dwa klucze, sekretna komora z relikwią, 6 kryształów.
+
+MAP zalana_kopalnia
+PLAYER_ANGLE 0
+PLAYER_HP 100
+TEXTURES assets/textures/kopalnia
+FLOOR_COLOR #3A3028
+CEILING_COLOR #120C08
+VAR_TIME_LIMIT 270
+VAR_MUSIC krypta_drone
+INTRO Kopalnię zalał żrący kwas.|Strażnicy czekają w zasadzkach i ruszają dopiero, gdy podejdziesz.|Ściany korytarzy kryją niejedną tajemnicę.
+OUTRO Za kopalnią bije serce krypty. Strażnik Krypty już na ciebie czeka.
+
+GRID
+W W W W W W W W W W W W W W W W W W W W W W
+W . . . . . . W . . . . . . W . . . . . . W
+W . P . . . . W . . S . . . W . . . . . . W
+W . . . . . . . . . . . . . D . . . . . . W
+W . . . . . . W . . . . . . W . . . . . . W
+W W W W . W W W W W W D W W W W W W W W W W
+W . . . . . . W . . . . . . W . . . . . . W
+W . . . . . . W . . . . . . W . . . . . . W
+W . . . . . . . . . . S . . . . . S . . . W
+W . . . . . . W . . . . . . W . . . . . . W
+W W W W D W W W W W W W W W W W W W D W W W
+W . . . . . . W . . . . . . W . . . . . . W
+W . . S . . . W . . . . . . W . . . . . . W
+W . . . . . . W . . . . . . W . . . . . . W
+W . . . . . . W . . . . . . W . . . . . . W
+W W W W W W W W W W W W W W W W W W W W W W
+
+# Typy przeciwników (wartości domyślne dla PLACE enemy i spawnEnemy)
+PLACE enemy_type straznik 0 0 0 hp=50 speed=0.9 damage=10 sight=5 behavior=chase
+PLACE enemy_type pajak 0 0 0 hp=20 speed=2.2 damage=6 sight=6 behavior=wander atlas=assets/sprites/pajak.png scale=0.55 z=0.22 range=0.7 attack_rate=0.7
+
+PLACE item crystal k1 5.5 0 1.5 bob=0.15
+PLACE item crystal k2 12.5 0 3.5 bob=0.15
+PLACE item crystal k3 19.5 0 1.5 bob=0.15
+PLACE item crystal k4 1.5 0 13.5 bob=0.15
+PLACE item crystal k5 19.5 0 6.5 bob=0.15
+PLACE item crystal k6 8.5 0 9.5 bob=0.15
+PLACE item klucz_czerwony kc 1.5 0 8.5 give=klucz_czerwony bob=0.1 scale=0.4
+PLACE item klucz_niebieski kn 19.5 0 4.5 give=klucz_niebieski bob=0.1 scale=0.4
+PLACE item relikwia r1 11.5 0 12.5 give=relikwia bob=0.1 scale=0.4
+PLACE item potion m1 5.5 0 13.5 scale=0.35
+PLACE item potion m2 15.5 0 9.5 scale=0.35
+PLACE zone acid kw1 9.5 0 2.5 radius=0.45 sprite=acid scale=0.7
+PLACE zone acid kw2 11.5 0 1.5 radius=0.45 sprite=acid scale=0.7
+PLACE zone acid kw3 17.5 0 6.5 radius=0.45 sprite=acid scale=0.7
+PLACE zone acid kw4 18.5 0 9.5 radius=0.45 sprite=acid scale=0.7
+PLACE zone acid kw5 12.5 0 7.5 radius=0.45 sprite=acid scale=0.7
+PLACE door czerwone 14 0 3 key=klucz_czerwony
+PLACE door niebieskie 4 0 10 key=klucz_niebieski
+PLACE door komora 11 0 10 secret=yes
+PLACE door brama 18 0 10
+PLACE enemy pajak p1 9.5 0 8.5
+PLACE enemy pajak p2 12.5 0 9.5
+PLACE enemy pajak p3 4.5 0 7.5
+PLACE enemy straznik s1 18.5 0 3.5 behavior=ambush hp=70
+PLACE enemy straznik s2 4.5 0 12.5 behavior=ambush hp=70
+PLACE enemy straznik s3 16.5 0 8.5 behavior=guard
+PLACE zone exit portal 18.5 0 12.5 radius=0.6 sprite=portal scale=0.9
+
+SOUND ding
+  WAVEFORM sine
+  FREQUENCY 1320
+  DECAY 0.25
+  VOLUME 0.5
+
+SOUND gate
+  WAVEFORM square
+  FREQUENCY 110
+  DECAY 0.9
+  VOLUME 0.4
+
+SOUND sizzle
+  TYPE noise
+  FREQUENCY 400
+  DECAY 0.15
+  VOLUME 0.3
+
+SOUND heal
+  WAVEFORM triangle
+  FREQUENCY 660
+  DECAY 0.4
+  VOLUME 0.5
+
+SOUND klucz
+  WAVEFORM sine
+  FREQUENCY 880
+  DECAY 0.35
+  VOLUME 0.45
+
+SOUND sekret
+  WAVEFORM triangle
+  FREQUENCY 520
+  DECAY 0.8
+  VOLUME 0.45
+
+SOUND zamek
+  WAVEFORM square
+  FREQUENCY 160
+  DECAY 0.12
+  VOLUME 0.3
+
+SOUND krypta_drone
+  WAVEFORM triangle
+  FREQUENCY 55
+  DECAY 3.5
+  VOLUME 0.25
+
+TRIGGER brama_otwarta
+  CONDITION var_at_least krysztaly 6
+  ACTION unlock_door brama
+  ACTION play_sound gate
+  ACTION show_message "Brama otwarta! Biegnij do portalu"

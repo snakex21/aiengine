@@ -6,11 +6,26 @@ MANIFEST
   FORMAT  project v1
   RUNTIME level
   CONFIG config.aie
-  MAIN_MAP maps/krypta.aie
+  MAIN_MAP maps/przedsionek.aie
   MENU menu.aie
+  CAMPAIGN yes
+  CARRY hp score items
+  LEVEL przedsionek maps/przedsionek.aie Przedsionek
   LEVEL krypta maps/krypta.aie Kryształowa Krypta
-  LEVEL trening maps/trening.aie Trening (3 kryształy)
+  LEVEL lodowe_groby maps/lodowe_groby.aie Lodowe Groby
+  LEVEL zalana_kopalnia maps/zalana_kopalnia.aie Zalana Kopalnia
+  LEVEL serce_krypty maps/serce_krypty.aie Serce Krypty
   MAIN_SCRIPT scripts/krypta.lua
   PLAYER_ASSETS assets/sprites/player
   ENEMY_ATLAS straznik.png
   RESTART_HINT Enter - zagraj ponownie   Esc - menu główne
+  TEXT_LEVEL_COMPLETE Poziom ukończony!
+  TEXT_CAMPAIGN_COMPLETE Krypta zdobyta!
+  TEXT_OUTRO Wszystkie poziomy ukończone. Kryształy wracają na powierzchnię.
+  TEXT_LOADING Wczytywanie...
+  TEXT_START Enter - start
+  TEXT_CONTINUE Enter - dalej
+  TEXT_TIME Czas
+  TEXT_BEST Rekord
+  TEXT_RECORD Nowy rekord!
+  TEXT_LOCKED (zablokowany)

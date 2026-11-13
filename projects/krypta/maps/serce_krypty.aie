@@ -1,0 +1,103 @@
+# maps/serce_krypty.aie — Poziom 5: Serce Krypty (walka z bossem)
+# Pokonaj Strażnika Krypty; co kilka sekund przywołuje pająki.
+
+MAP serce_krypty
+PLAYER_ANGLE -90
+PLAYER_HP 100
+TEXTURES assets/textures/serce
+FLOOR_COLOR #301018
+CEILING_COLOR #0A0406
+VAR_TIME_LIMIT 300
+VAR_BOSS boss
+VAR_SUMMON 9
+VAR_MUSIC krypta_drone
+INTRO Serce krypty pulsuje czerwonym światłem.|Strażnik Krypty przywołuje pająki - pokonaj go, a brama do portalu się otworzy.|Kryj się za filarami.
+OUTRO Strażnik pada, a krypta cichnie. Kryształy są twoje.
+
+GRID
+W W W W W W W W W W W W W W W W W W W
+W . . . . . . . . . . . . . . . W W W
+W . . . . . . . . . . . . . . . W W W
+W . . . S . . . . . . . S . . . W W W
+W . . . . . . . . . . . . . . . W W W
+W . . . . . . . . . . . . . . . W . W
+W . . . . . . . . . . . . . . . W W W
+W . . . . . . . . . . . . . . . W W W
+W . . . S . . . . . . . S . . . W W W
+W . . . . . . . P . . . . . . . W W W
+W . . . . . . . . . . . . . . . W W W
+W W W W W W W W D W W W W W W W W W W
+W W W W W . . . . . . . . W W W W W W
+W W W W W . . . . . . . . W W W W W W
+W W W W W . . . . . . . . W W W W W W
+W W W W W W W W W W W W W W W W W W W
+
+# Typy przeciwników (wartości domyślne dla PLACE enemy i spawnEnemy)
+PLACE enemy_type straznik 0 0 0 hp=50 speed=0.9 damage=10 sight=5 behavior=chase
+PLACE enemy_type pajak 0 0 0 hp=20 speed=2.2 damage=6 sight=6 behavior=wander atlas=assets/sprites/pajak.png scale=0.55 z=0.22 range=0.7 attack_rate=0.7
+
+PLACE enemy_type wladca 0 0 0 hp=300 speed=0.8 damage=15 sight=9 range=1.2 attack_rate=1.2 behavior=chase atlas=assets/sprites/straznik_krypty.png scale=1.35 z=-0.15
+PLACE enemy wladca boss 8.5 0 3.5
+PLACE enemy pajak p1 2.5 0 2.5
+PLACE enemy pajak p2 14.5 0 2.5
+PLACE item potion m1 1.5 0 9.5 scale=0.35
+PLACE item potion m2 15.5 0 9.5 scale=0.35
+PLACE item potion m3 17.5 0 5.5 scale=0.35
+PLACE item relikwia r1 17.5 0 5.5 give=relikwia bob=0.1 scale=0.4
+PLACE door nisza 16 0 5 secret=yes
+PLACE door brama 8 0 11
+PLACE zone exit portal 8.5 0 13.5 radius=0.6 sprite=portal scale=0.9
+
+SOUND ding
+  WAVEFORM sine
+  FREQUENCY 1320
+  DECAY 0.25
+  VOLUME 0.5
+
+SOUND gate
+  WAVEFORM square
+  FREQUENCY 110
+  DECAY 0.9
+  VOLUME 0.4
+
+SOUND sizzle
+  TYPE noise
+  FREQUENCY 400
+  DECAY 0.15
+  VOLUME 0.3
+
+SOUND heal
+  WAVEFORM triangle
+  FREQUENCY 660
+  DECAY 0.4
+  VOLUME 0.5
+
+SOUND klucz
+  WAVEFORM sine
+  FREQUENCY 880
+  DECAY 0.35
+  VOLUME 0.45
+
+SOUND sekret
+  WAVEFORM triangle
+  FREQUENCY 520
+  DECAY 0.8
+  VOLUME 0.45
+
+SOUND zamek
+  WAVEFORM square
+  FREQUENCY 160
+  DECAY 0.12
+  VOLUME 0.3
+
+SOUND krypta_drone
+  WAVEFORM triangle
+  FREQUENCY 55
+  DECAY 3.5
+  VOLUME 0.25
+
+TRIGGER boss_pokonany
+  CONDITION enemy_dead boss
+  ACTION unlock_door brama
+  ACTION play_sound gate
+  ACTION show_message "Strażnik Krypty pokonany! Brama otwarta"

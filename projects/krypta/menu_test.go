@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"aiengine/level"
 	"aiengine/parser"
+	"aiengine/progress"
 	"aiengine/settings"
 	"aiengine/ui"
 )
@@ -27,31 +27,61 @@ func loadMenu(t *testing.T, s *settings.Settings) (*ui.Menu, *parser.Manifest) {
 func TestTitleMenuNavigation(t *testing.T) {
 	s := settings.Defaults(1280, 720)
 	menu, man := loadMenu(t, &s)
+	camp := progress.FromManifest(man)
+	prog := progress.New(camp)
+	// Same hooks as the engine host (campaign_runtime.go).
+	menu.Available = func(a ui.Action) bool { return a.Kind != "continue" || prog.CanContinue() }
+	menu.LevelStatus = func(id string) (bool, string) {
+		if !prog.Unlocked[id] {
+			return false, "(zablokowany)"
+		}
+		if b, ok := prog.Best[id]; ok {
+			return true, progress.FormatTime(b)
+		}
+		return true, ""
+	}
+
 	menu.OpenRoot("main")
 	want := "main: [Nowa gra] | Wybór poziomu | Jak grać | Ustawienia | Wyjście"
 	if got := menu.Describe(); got != want {
-		t.Fatalf("main menu\n got %s\nwant %s", got, want)
+		t.Fatalf("main menu without a save\n got %s\nwant %s", got, want)
 	}
 
-	// Wybór poziomu → Trening → load_level trening.
+	// Finish level 1: "Kontynuuj" appears and level 2 unlocks with level 1's record.
+	prog.NewGame(camp)
+	prog.Complete(camp, "przedsionek", 83, progress.State{})
+	menu.OpenRoot("main")
+	if got := menu.Describe(); !strings.HasPrefix(got, "main: [Kontynuuj] | Nowa gra") {
+		t.Fatalf("main menu with a save: %s", got)
+	}
+	if a, ok := menu.Input(ui.Accept); !ok || a.Kind != "continue" {
+		t.Fatalf("continue: %+v", a)
+	}
+
+	menu.OpenRoot("main")
+	menu.Input(ui.Down)
 	menu.Input(ui.Down)
 	menu.Input(ui.Accept)
-	if !strings.HasPrefix(menu.Describe(), "level_select: [Kryształowa Krypta] | Trening (3 kryształy) | Wróć") {
-		t.Fatalf("level select: %s", menu.Describe())
+	want = "level_select: [Przedsionek  1:23] | Kryształowa Krypta | Lodowe Groby  (zablokowany) | Zalana Kopalnia  (zablokowany) | Serce Krypty  (zablokowany) | Wróć"
+	if got := menu.Describe(); got != want {
+		t.Fatalf("level select\n got %s\nwant %s", got, want)
 	}
 	menu.Input(ui.Down)
-	a, ok := menu.Input(ui.Accept)
-	if !ok || a.Kind != "load_level" || a.Arg != "trening" || menu.Active() {
-		t.Fatalf("load level: %+v ok=%v", a, ok)
+	menu.Input(ui.Down) // Lodowe Groby: locked
+	if _, ok := menu.Input(ui.Accept); ok {
+		t.Fatal("a locked level started")
 	}
-	if l, ok := man.FindLevel(a.Arg); !ok || l.Path != "maps/trening.aie" {
-		t.Fatalf("level entry %+v", l)
+	menu.Input(ui.Up)
+	a, ok := menu.Input(ui.Accept)
+	if !ok || a.Kind != "load_level" || a.Arg != "krypta" || menu.Active() {
+		t.Fatalf("load level: %+v ok=%v", a, ok)
 	}
 
 	// Jak grać → Wróć; Esc on the title screen does nothing.
 	menu.OpenRoot("main")
-	menu.Input(ui.Down)
-	menu.Input(ui.Down)
+	for i := 0; i < 3; i++ {
+		menu.Input(ui.Down)
+	}
 	menu.Input(ui.Accept)
 	if menu.ScreenName() != "instrukcja" {
 		t.Fatalf("screen %s", menu.ScreenName())
@@ -127,25 +157,5 @@ func TestPauseFreezesTimeAndScriptTimers(t *testing.T) {
 	}
 	if g.lua.L.GetGlobal("fired").String() != "true" || !hudHas(g.eng, "Czas 2:57") {
 		t.Fatalf("after resume: HUD %v fired %s", g.eng.HUDLines(), g.lua.L.GetGlobal("fired"))
-	}
-}
-
-func TestTrainingLevelWin(t *testing.T) {
-	g := startMap(t, "maps/trening.aie")
-	if !hudHas(g.eng, "Kryształy 0/3") || !hudHas(g.eng, "Czas 2:00") {
-		t.Fatalf("HUD %v", g.eng.HUDLines())
-	}
-	for _, id := range []string{"t1", "t2", "t3"} {
-		g.visit(t, id)
-	}
-	if g.lv.IsSolid(6.5, 3.5) {
-		t.Fatal("gate closed after 3 crystals")
-	}
-	if !reachable(g.lv)[cell(g.at(t, "portal"))] {
-		t.Fatal("portal unreachable")
-	}
-	g.visit(t, "portal")
-	if g.s.State != level.Won {
-		t.Fatalf("state %v", g.s.State)
 	}
 }
