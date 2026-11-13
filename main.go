@@ -1141,6 +1141,11 @@ func (app *App) isWallAt(x, y float64) bool {
 
 // render draws a frame.
 func (app *App) render() {
+	// Stretch the internal image over the real framebuffer (fullscreen and
+	// window resizes previously left it in the bottom-left corner).
+	fbW, fbH := app.window.GetFramebufferSize()
+	app.raycaster.ViewportW, app.raycaster.ViewportH = int32(fbW), int32(fbH)
+
 	// Sync HUD values from scripting engine.
 	app.raycaster.HUDHP = int(app.scriptEngine.GetPlayerHP())
 	app.raycaster.HUDMaxHP = int(app.scriptEngine.PlayerMaxHP)

@@ -42,24 +42,52 @@ func TestScreenEffectsRedTintAndDesaturate(t *testing.T) {
 
 func TestHUDTextOverlayDarkensAndDraws(t *testing.T) {
 	const sw, sh = 200, 120
-	rc := &Raycaster{pixels: make([]uint8, sw*sh*4)}
-	for i := range rc.pixels {
-		rc.pixels[i] = 90
-	}
+	rc := &Raycaster{ui: make([]uint8, sw*sh*4)}
 	rc.OverlayTitle = "WIN"
 	rc.OverlaySubtitle = "line 1\nline 2"
 	rc.HUDLines = []string{"ITEMS 1/6"}
 	rc.drawHUDText(sw, sh)
-	if rc.pixels[0] != 30 { // corner darkened to a third
-		t.Fatalf("corner = %d, want 30", rc.pixels[0])
+	if rc.ui[3] != 175 || rc.ui[0] != 0 { // corner: translucent black veil
+		t.Fatalf("corner = %v, want black at alpha 175", rc.ui[:4])
 	}
 	bright := 0
-	for i := 0; i < len(rc.pixels); i += 4 {
-		if rc.pixels[i] > 200 {
+	for i := 0; i < len(rc.ui); i += 4 {
+		if rc.ui[i] > 200 {
 			bright++
 		}
 	}
 	if bright == 0 {
 		t.Fatal("overlay text was not drawn")
 	}
+}
+
+func TestHUDGoesToUILayerNotWorld(t *testing.T) {
+	const sw, sh = 160, 100
+	rc := &Raycaster{pixels: make([]uint8, sw*sh*4), ui: make([]uint8, sw*sh*4), HUDMaxHP: 100, HUDHP: 50}
+	rc.HUDLines = []string{"ŻÓŁW"}
+	rc.drawHUD(sw, sh)
+	rc.drawHUDText(sw, sh)
+	for _, v := range rc.pixels {
+		if v != 0 {
+			t.Fatal("HUD drew into the world buffer")
+		}
+	}
+	lit := 0
+	for i := 3; i < len(rc.ui); i += 4 {
+		if rc.ui[i] != 0 {
+			lit++
+		}
+	}
+	if lit == 0 {
+		t.Fatal("HUD missing from UI layer")
+	}
+}
+
+func TestFillRectClips(t *testing.T) {
+	buf := make([]uint8, 4*4*4)
+	FillRect(buf, 4, 4, -2, 3, 10, 10, [4]uint8{1, 2, 3, 4})
+	if buf[(3*4+0)*4+3] != 4 || buf[(2*4+0)*4+3] != 0 {
+		t.Fatal("FillRect clipping wrong")
+	}
+	FillRect(buf, 4, 4, 9, 9, 2, 2, [4]uint8{9, 9, 9, 9}) // fully outside: no panic
 }

@@ -269,6 +269,19 @@ type Raycaster struct {
 	OverlaySubtitle string
 	OverlayColor    [4]uint8
 
+	// HideHUD suppresses crosshair, bars, HUD text and the weapon (menus).
+	HideHUD bool
+	// UIDraw, when set, draws extra UI (menus) into the UI layer each frame.
+	UIDraw func(buf []uint8, sw, sh int)
+	// ViewportW/H is the framebuffer size the image is stretched to
+	// (0 = same as the internal render size).
+	ViewportW, ViewportH int32
+
+	// UI layer: RGBA with alpha, drawn after sprites and the weapon so HUD
+	// text, menus and the console are always on top.
+	ui    []uint8
+	uiTex uint32
+
 	// Floor/ceiling fill colours (defaults set by NewRaycaster).
 	CeilColor  color.RGBA
 	FloorColor color.RGBA
@@ -291,6 +304,7 @@ func (rc *Raycaster) Init(screenW, screenH int32) error {
 	rc.screenH = screenH
 	rc.zBuffer = make([]float64, screenW)
 	rc.pixels = make([]uint8, screenW*screenH*4)
+	rc.ui = make([]uint8, screenW*screenH*4)
 
 	log.Printf("[Renderer] Initializing %dx%d (pixel buffer: %d bytes)",
 		screenW, screenH, len(rc.pixels))
@@ -379,43 +393,116 @@ void main(){FragColor=texture(uTex,vTexCoord);}
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
 	log.Printf("[Renderer] Screen texture ID=%d (%dx%d)", rc.screenTex, screenW, screenH)
 
+	gl.GenTextures(1, &rc.uiTex)
+	gl.BindTexture(gl.TEXTURE_2D, rc.uiTex)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, screenW, screenH, 0, gl.RGBA, gl.UNSIGNED_BYTE, nil)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+
 	checkGLError("Init end")
 	return nil
 }
 
 // Render executes a full frame.
 func (rc *Raycaster) Render(sprites []*Sprite) {
-	gl.Viewport(0, 0, rc.screenW, rc.screenH)
+	// The internal image (screenW x screenH) is stretched over the whole
+	// framebuffer, so fullscreen/resize never leave it in a corner.
+	vw, vh := rc.viewport()
+	gl.Viewport(0, 0, vw, vh)
 	gl.ClearColor(0, 0, 0, 1)
 	gl.Clear(gl.COLOR_BUFFER_BIT)
 
-	// 1. CPU: fill pixel buffer with floor, ceiling, and walls.
+	// 1. CPU: world (floor, ceiling, walls, colour effects) and the UI layer.
 	rc.renderToBuffer(sprites)
+	rc.renderUI()
 
-	// 2. Upload to texture.
-	gl.BindTexture(gl.TEXTURE_2D, rc.screenTex)
-	gl.TexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, rc.screenW, rc.screenH, gl.RGBA, gl.UNSIGNED_BYTE, gl.Ptr(rc.pixels))
-
-	// 3. Draw fullscreen quad.
+	// 2. World image as a fullscreen quad.
 	gl.Disable(gl.DEPTH_TEST)
-	rc.simpleProg.Use()
-	gl.ActiveTexture(gl.TEXTURE0)
-	gl.BindTexture(gl.TEXTURE_2D, rc.screenTex)
-	rc.simpleProg.SetUniform1i("uTex", 0)
-	gl.BindVertexArray(rc.quadVAO)
-	gl.DrawArrays(gl.TRIANGLES, 0, 6)
-	gl.BindVertexArray(0)
+	rc.drawLayer(rc.screenTex, rc.pixels, false)
 
-	// 4. Draw sprites as GPU overlay (using Z-buffer from DDA). The end-screen
-	// overlay lives in the CPU buffer, so sprites would cover it: skip them.
-	if rc.OverlayTitle == "" {
-		rc.drawSprites(sprites)
+	// 3. Sprites and the first-person weapon (GPU, depth-tested against the
+	// CPU z-buffer).
+	rc.drawSprites(sprites)
+	if !rc.HideHUD && rc.OverlayTitle == "" {
 		rc.DrawHUDWeapon()
 	}
+
+	// 4. UI layer on top of everything.
+	rc.drawLayer(rc.uiTex, rc.ui, true)
 	gl.Enable(gl.DEPTH_TEST)
 
 	checkGLError("Render end")
 }
+
+func (rc *Raycaster) viewport() (int32, int32) {
+	if rc.ViewportW > 0 && rc.ViewportH > 0 {
+		return rc.ViewportW, rc.ViewportH
+	}
+	return rc.screenW, rc.screenH
+}
+
+// drawLayer uploads a CPU buffer to tex and draws it as a fullscreen quad.
+func (rc *Raycaster) drawLayer(tex uint32, pix []uint8, blend bool) {
+	gl.Disable(gl.DEPTH_TEST) // drawSprites re-enables it; the depth buffer is never cleared
+	gl.BindTexture(gl.TEXTURE_2D, tex)
+	gl.TexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, rc.screenW, rc.screenH, gl.RGBA, gl.UNSIGNED_BYTE, gl.Ptr(pix))
+	if blend {
+		gl.Enable(gl.BLEND)
+		gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+	}
+	rc.simpleProg.Use()
+	gl.ActiveTexture(gl.TEXTURE0)
+	gl.BindTexture(gl.TEXTURE_2D, tex)
+	rc.simpleProg.SetUniform1i("uTex", 0)
+	gl.BindVertexArray(rc.quadVAO)
+	gl.DrawArrays(gl.TRIANGLES, 0, 6)
+	gl.BindVertexArray(0)
+	if blend {
+		gl.Disable(gl.BLEND)
+	}
+}
+
+// renderUI clears the UI layer and draws HUD, scripted text, menus and the
+// console into it.
+func (rc *Raycaster) renderUI() {
+	sw, sh := int(rc.screenW), int(rc.screenH)
+	if len(rc.ui) != sw*sh*4 {
+		rc.ui = make([]uint8, sw*sh*4)
+	}
+	clear(rc.ui)
+	if !rc.HideHUD {
+		rc.drawHUD(sw, sh)
+		rc.drawHUDText(sw, sh)
+	}
+	if rc.UIDraw != nil {
+		rc.UIDraw(rc.ui, sw, sh)
+	}
+	if rc.ConsoleOpen {
+		rc.drawConsole(sw, sh)
+	}
+}
+
+// Resize changes the internal render resolution (pixel buffers, z-buffer and
+// textures). The image is still stretched to ViewportW x ViewportH.
+func (rc *Raycaster) Resize(w, h int32) {
+	if w <= 0 || h <= 0 || (w == rc.screenW && h == rc.screenH) {
+		return
+	}
+	rc.screenW, rc.screenH = w, h
+	rc.pixels = make([]uint8, w*h*4)
+	rc.ui = make([]uint8, w*h*4)
+	rc.zBuffer = make([]float64, w)
+	for _, tex := range []uint32{rc.screenTex, rc.uiTex} {
+		gl.BindTexture(gl.TEXTURE_2D, tex)
+		gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, nil)
+	}
+	log.Printf("[Renderer] Resized to %dx%d", w, h)
+}
+
+// Size returns the internal render resolution.
+func (rc *Raycaster) Size() (int, int) { return int(rc.screenW), int(rc.screenH) }
 
 // renderToBuffer fills rc.pixels with ceiling, floor, and wall columns.
 func (rc *Raycaster) renderToBuffer(sprites []*Sprite) {
@@ -637,14 +724,6 @@ func (rc *Raycaster) renderToBuffer(sprites []*Sprite) {
 	// vignette) on the world image, before HUD text is drawn.
 	rc.applyScreenEffects(sw, sh)
 
-	// Draw HUD overlay.
-	rc.drawHUD(sw, sh)
-	rc.drawHUDText(sw, sh)
-
-	// Draw console overlay on top of everything.
-	if rc.ConsoleOpen {
-		rc.drawConsole(sw, sh)
-	}
 }
 
 // drawHUD renders crosshair, HP bar and ammo counter.
@@ -658,25 +737,25 @@ func (rc *Raycaster) drawHUD(sw, sh int) {
 	for x := cx - crossLen; x < cx-crossGap; x++ {
 		if x >= 0 && x < sw {
 			idx := (cy*sw + x) * 4
-			rc.pixels[idx], rc.pixels[idx+1], rc.pixels[idx+2], rc.pixels[idx+3] = white[0], white[1], white[2], white[3]
+			rc.ui[idx], rc.ui[idx+1], rc.ui[idx+2], rc.ui[idx+3] = white[0], white[1], white[2], white[3]
 		}
 	}
 	for x := cx + crossGap; x < cx+crossLen; x++ {
 		if x >= 0 && x < sw {
 			idx := (cy*sw + x) * 4
-			rc.pixels[idx], rc.pixels[idx+1], rc.pixels[idx+2], rc.pixels[idx+3] = white[0], white[1], white[2], white[3]
+			rc.ui[idx], rc.ui[idx+1], rc.ui[idx+2], rc.ui[idx+3] = white[0], white[1], white[2], white[3]
 		}
 	}
 	for y := cy - crossLen; y < cy-crossGap; y++ {
 		if y >= 0 && y < sh {
 			idx := (y*sw + cx) * 4
-			rc.pixels[idx], rc.pixels[idx+1], rc.pixels[idx+2], rc.pixels[idx+3] = white[0], white[1], white[2], white[3]
+			rc.ui[idx], rc.ui[idx+1], rc.ui[idx+2], rc.ui[idx+3] = white[0], white[1], white[2], white[3]
 		}
 	}
 	for y := cy + crossGap; y < cy+crossLen; y++ {
 		if y >= 0 && y < sh {
 			idx := (y*sw + cx) * 4
-			rc.pixels[idx], rc.pixels[idx+1], rc.pixels[idx+2], rc.pixels[idx+3] = white[0], white[1], white[2], white[3]
+			rc.ui[idx], rc.ui[idx+1], rc.ui[idx+2], rc.ui[idx+3] = white[0], white[1], white[2], white[3]
 		}
 	}
 
@@ -688,14 +767,14 @@ func (rc *Raycaster) drawHUD(sw, sh int) {
 		for x := barX - 1; x <= barX+barW; x++ {
 			if y >= 0 && y < sh && x >= 0 && x < sw {
 				idx := (y*sw + x) * 4
-				rc.pixels[idx], rc.pixels[idx+1], rc.pixels[idx+2], rc.pixels[idx+3] = borderColor[0], borderColor[1], borderColor[2], borderColor[3]
+				rc.ui[idx], rc.ui[idx+1], rc.ui[idx+2], rc.ui[idx+3] = borderColor[0], borderColor[1], borderColor[2], borderColor[3]
 			}
 		}
 	}
 	for y := barY; y < barY+barH; y++ {
 		for x := barX; x < barX+barW; x++ {
 			idx := (y*sw + x) * 4
-			rc.pixels[idx], rc.pixels[idx+1], rc.pixels[idx+2], rc.pixels[idx+3] = bgColor[0], bgColor[1], bgColor[2], bgColor[3]
+			rc.ui[idx], rc.ui[idx+1], rc.ui[idx+2], rc.ui[idx+3] = bgColor[0], bgColor[1], bgColor[2], bgColor[3]
 		}
 	}
 	if rc.HUDMaxHP > 0 {
@@ -713,8 +792,8 @@ func (rc *Raycaster) drawHUD(sw, sh int) {
 				r := uint8(255 * (1 - frac))
 				g := uint8(255 * frac)
 				idx := (y*sw + x) * 4
-				rc.pixels[idx], rc.pixels[idx+1], rc.pixels[idx+2] = r, g, 0
-				rc.pixels[idx+3] = 220
+				rc.ui[idx], rc.ui[idx+1], rc.ui[idx+2] = r, g, 0
+				rc.ui[idx+3] = 220
 			}
 		}
 	}
@@ -728,14 +807,14 @@ func (rc *Raycaster) drawHUD(sw, sh int) {
 		for x := ammoX - 1; x <= ammoX+ammoW; x++ {
 			if y >= 0 && y < sh && x >= 0 && x < sw {
 				idx := (y*sw + x) * 4
-				rc.pixels[idx], rc.pixels[idx+1], rc.pixels[idx+2], rc.pixels[idx+3] = borderColor[0], borderColor[1], borderColor[2], borderColor[3]
+				rc.ui[idx], rc.ui[idx+1], rc.ui[idx+2], rc.ui[idx+3] = borderColor[0], borderColor[1], borderColor[2], borderColor[3]
 			}
 		}
 	}
 	for y := ammoY; y < ammoY+ammoH; y++ {
 		for x := ammoX; x < ammoX+ammoW; x++ {
 			idx := (y*sw + x) * 4
-			rc.pixels[idx], rc.pixels[idx+1], rc.pixels[idx+2], rc.pixels[idx+3] = bgColor[0], bgColor[1], bgColor[2], bgColor[3]
+			rc.ui[idx], rc.ui[idx+1], rc.ui[idx+2], rc.ui[idx+3] = bgColor[0], bgColor[1], bgColor[2], bgColor[3]
 		}
 	}
 	if rc.HUDAmmoMax > 0 {
@@ -750,8 +829,8 @@ func (rc *Raycaster) drawHUD(sw, sh int) {
 		for y := ammoY; y < ammoY+ammoH; y++ {
 			for x := ammoX; x < ammoX+fillW; x++ {
 				idx := (y*sw + x) * 4
-				rc.pixels[idx], rc.pixels[idx+1], rc.pixels[idx+2] = uint8(220), uint8(160), uint8(40)
-				rc.pixels[idx+3] = 220
+				rc.ui[idx], rc.ui[idx+1], rc.ui[idx+2] = uint8(220), uint8(160), uint8(40)
+				rc.ui[idx+3] = 220
 			}
 		}
 	}
@@ -764,26 +843,24 @@ func (rc *Raycaster) drawHUDText(sw, sh int) {
 	if sh >= 900 {
 		scale = 3
 	}
-	for i, line := range rc.HUDLines {
-		DrawTextScaled(rc.pixels, sw, sh, 12, 12+i*(FontH*scale+4), line, white, scale)
+	if rc.OverlayTitle == "" {
+		for i, line := range rc.HUDLines {
+			DrawTextScaled(rc.ui, sw, sh, 12, 12+FontAccentRows*scale+i*(FontH+FontAccentRows+1)*scale, line, white, scale)
+		}
 	}
 
 	if rc.OverlayTitle != "" {
-		for i := 0; i < len(rc.pixels); i += 4 {
-			rc.pixels[i] /= 3
-			rc.pixels[i+1] /= 3
-			rc.pixels[i+2] /= 3
-		}
+		FillRect(rc.ui, sw, sh, 0, 0, sw, sh, [4]uint8{0, 0, 0, 175})
 		col := rc.OverlayColor
 		if col[3] == 0 {
 			col = [4]uint8{255, 220, 90, 255}
 		}
 		big := scale * 3
-		DrawTextScaled(rc.pixels, sw, sh, (sw-TextWidth(rc.OverlayTitle, big))/2, sh/3, rc.OverlayTitle, col, big)
+		DrawTextScaled(rc.ui, sw, sh, (sw-TextWidth(rc.OverlayTitle, big))/2, sh/3, rc.OverlayTitle, col, big)
 		y := sh/3 + FontH*big + 24
 		for _, line := range splitLines(rc.OverlaySubtitle) {
-			DrawTextScaled(rc.pixels, sw, sh, (sw-TextWidth(line, scale))/2, y, line, white, scale)
-			y += FontH*scale + 8
+			DrawTextScaled(rc.ui, sw, sh, (sw-TextWidth(line, scale))/2, y, line, white, scale)
+			y += (FontH+FontAccentRows*2)*scale + 4
 		}
 		return
 	}
@@ -793,8 +870,8 @@ func (rc *Raycaster) drawHUDText(sw, sh int) {
 		yellow := [4]uint8{255, 230, 120, 255}
 		y := sh / 4
 		for _, line := range splitLines(rc.HUDMessage) {
-			DrawTextScaled(rc.pixels, sw, sh, (sw-TextWidth(line, ms))/2, y, line, yellow, ms)
-			y += FontH*ms + 6
+			DrawTextScaled(rc.ui, sw, sh, (sw-TextWidth(line, ms))/2, y, line, yellow, ms)
+			y += (FontH+FontAccentRows*2)*ms + 2
 		}
 	}
 }
@@ -885,11 +962,12 @@ func clampByte(v float64) uint8 {
 // ReadScreen reads the current framebuffer (call after Render, before swap)
 // into a top-down RGBA image.
 func (rc *Raycaster) ReadScreen() *image.RGBA {
-	w, h := int(rc.screenW), int(rc.screenH)
+	vw, vh := rc.viewport()
+	w, h := int(vw), int(vh)
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	buf := make([]uint8, w*h*4)
 	gl.PixelStorei(gl.PACK_ALIGNMENT, 1)
-	gl.ReadPixels(0, 0, rc.screenW, rc.screenH, gl.RGBA, gl.UNSIGNED_BYTE, gl.Ptr(buf))
+	gl.ReadPixels(0, 0, vw, vh, gl.RGBA, gl.UNSIGNED_BYTE, gl.Ptr(buf))
 	for y := 0; y < h; y++ { // OpenGL rows are bottom-up
 		copy(img.Pix[y*w*4:(y+1)*w*4], buf[(h-1-y)*w*4:(h-y)*w*4])
 	}
@@ -909,15 +987,15 @@ func (rc *Raycaster) drawConsole(sw, sh int) {
 	for y := startY; y < sh; y++ {
 		for x := 0; x < sw; x++ {
 			idx := (y*sw + x) * 4
-			rc.pixels[idx] = bg[0]
-			rc.pixels[idx+1] = bg[1]
-			rc.pixels[idx+2] = bg[2]
-			rc.pixels[idx+3] = bg[3]
+			rc.ui[idx] = bg[0]
+			rc.ui[idx+1] = bg[1]
+			rc.ui[idx+2] = bg[2]
+			rc.ui[idx+3] = bg[3]
 		}
 	}
 
 	prompt := "> " + rc.ConsoleInput + "_"
-	DrawConsoleString(rc.pixels, sw, 8, sh-14, prompt, green)
+	DrawConsoleString(rc.ui, sw, 8, sh-14, prompt, green)
 
 	visible := (sh/2 - 20) / FontH
 	if visible > len(rc.ConsoleHistory) {
@@ -925,7 +1003,7 @@ func (rc *Raycaster) drawConsole(sw, sh int) {
 	}
 	for i := 0; i < visible; i++ {
 		line := rc.ConsoleHistory[len(rc.ConsoleHistory)-visible+i]
-		DrawConsoleString(rc.pixels, sw, 8, sh-14-(visible-i)*FontH, line, white)
+		DrawConsoleString(rc.ui, sw, 8, sh-14-(visible-i)*FontH, line, white)
 	}
 }
 
@@ -1151,6 +1229,9 @@ func (rc *Raycaster) Shutdown() {
 	if rc.screenTex != 0 {
 		gl.DeleteTextures(1, &rc.screenTex)
 	}
+	if rc.uiTex != 0 {
+		gl.DeleteTextures(1, &rc.uiTex)
+	}
 }
 
 // checkGLError logs OpenGL errors.
@@ -1164,4 +1245,31 @@ func checkGLError(tag string) {
 // colorToRGBA converts a color.RGBA to [4]uint8.
 func colorToRGBA(c color.RGBA) [4]uint8 {
 	return [4]uint8{c.R, c.G, c.B, c.A}
+}
+
+// FillRect overwrites a clipped rectangle with col (alpha included); used for
+// drawing into the UI layer.
+func FillRect(buf []uint8, sw, sh, x0, y0, w, h int, col [4]uint8) {
+	x1, y1 := x0+w, y0+h
+	if x0 < 0 {
+		x0 = 0
+	}
+	if y0 < 0 {
+		y0 = 0
+	}
+	if x1 > sw {
+		x1 = sw
+	}
+	if y1 > sh {
+		y1 = sh
+	}
+	if x0 >= x1 {
+		return
+	}
+	for y := y0; y < y1; y++ {
+		row := buf[(y*sw+x0)*4 : (y*sw+x1)*4]
+		for i := 0; i < len(row); i += 4 {
+			row[i], row[i+1], row[i+2], row[i+3] = col[0], col[1], col[2], col[3]
+		}
+	}
 }
