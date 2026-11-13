@@ -29,3 +29,10 @@ func TestParseHexColor(t *testing.T) {
 		t.Fatal("expected failure")
 	}
 }
+
+func TestParseExecFrames(t *testing.T) {
+	got := parseExec("menu close; @30 advance; @5 tp 1 2; god")
+	if len(got[0]) != 2 || got[0][1] != "god" || got[30][0] != "advance" || got[5][0] != "tp 1 2" {
+		t.Fatalf("parseExec = %v", got)
+	}
+}

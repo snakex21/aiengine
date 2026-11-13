@@ -86,6 +86,9 @@ type App struct {
 	cs      *campaignState
 	advPrev bool // advance key (Enter/Space) held last frame
 
+	// --exec commands by frame ("@N cmd" runs at frame N, others at start).
+	delayedExec map[int][]string
+
 	// Level runtime (manifest RUNTIME level); nil for the legacy demo.
 	game             *levelGame
 	winMode          windowMode
@@ -563,11 +566,8 @@ func (app *App) init() error {
 	app.initMenu()
 	app.initCampaign()
 
-	for _, cmd := range strings.Split(app.opts.exec, ";") {
-		if cmd = strings.TrimSpace(cmd); cmd != "" {
-			log.Printf("[exec] %s -> %s", cmd, systems.ExecuteCommand(app.console, cmd))
-		}
-	}
+	app.delayedExec = parseExec(app.opts.exec)
+	app.runExec(0)
 
 	app.lastFrameTime = time.Now()
 	log.Println("AIEngine initialized successfully.")
@@ -751,6 +751,7 @@ func (app *App) run() {
 		app.render()
 
 		app.frameCount++
+		app.runExec(app.frameCount)
 		if app.opts.frames > 0 && app.frameCount >= app.opts.frames {
 			if app.opts.screenshot != "" {
 				if err := app.saveScreenshot(app.opts.screenshot); err != nil {
@@ -1542,6 +1543,14 @@ func (app *App) consoleCommand(cmd string, args []string) string {
 		}
 		return "level " + id
 
+	case "advance":
+		// Press "continue" on a campaign intro/outro screen (for tests).
+		if app.campaignBlocking() {
+			app.campaignAdvance()
+			return "advanced"
+		}
+		return "no campaign screen"
+
 	case "focus":
 		app.onFocusChange(systems.ArgString(args, 0) != "off")
 		return "focus " + systems.ArgString(args, 0)
@@ -1581,4 +1590,32 @@ func (app *App) advancePressed() bool {
 	pressed := down && !app.advPrev
 	app.advPrev = down
 	return pressed
+}
+
+// parseExec splits --exec into commands per frame: "@30 advance" runs at
+// frame 30, plain commands right after start (frame 0).
+func parseExec(spec string) map[int][]string {
+	out := map[int][]string{}
+	for _, cmd := range strings.Split(spec, ";") {
+		cmd = strings.TrimSpace(cmd)
+		if cmd == "" {
+			continue
+		}
+		frame := 0
+		if strings.HasPrefix(cmd, "@") {
+			head, rest, _ := strings.Cut(cmd[1:], " ")
+			if n, err := strconv.Atoi(head); err == nil {
+				frame, cmd = n, strings.TrimSpace(rest)
+			}
+		}
+		out[frame] = append(out[frame], cmd)
+	}
+	return out
+}
+
+func (app *App) runExec(frame int) {
+	for _, cmd := range app.delayedExec[frame] {
+		log.Printf("[exec@%d] %s -> %s", frame, cmd, systems.ExecuteCommand(app.console, cmd))
+	}
+	delete(app.delayedExec, frame)
 }
