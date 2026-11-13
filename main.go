@@ -161,6 +161,11 @@ type DemoEnemy struct {
 	AnimTimer   float64
 	State       string
 	Alive       bool
+
+	// Level runtime only: behaviour brain and per-type sprite frames.
+	Brain       *level.Brain
+	FramePrefix string // texture prefix of the 3x2 atlas frames ("" = "enemy")
+	AttackRate  float64
 }
 
 type DemoPlayerAnim struct {
@@ -670,7 +675,14 @@ func (app *App) loadPlayerAnimationFiles(dir string) bool {
 }
 
 func (app *App) enemyFrame(index int) string {
-	name := fmt.Sprintf("enemy_%d", index)
+	return app.enemyFrameFor("", index)
+}
+
+func (app *App) enemyFrameFor(prefix string, index int) string {
+	if prefix == "" {
+		prefix = "enemy"
+	}
+	name := fmt.Sprintf("%s_%d", prefix, index)
 	if app.texManager != nil && app.texManager.Get(name) != nil {
 		return name
 	}
@@ -809,6 +821,10 @@ func (app *App) handleInput() {
 		app.scriptEngine.PlaySound("gunshot")
 		app.playerAnim.ShootTimer = 0.18
 		app.shootDemoEnemy()
+	}
+	// Use/open doors in front of the player (level runtime).
+	if app.game != nil && app.inputManager.IsJustPressed("interact") {
+		app.game.session.Interact(app.player.X, app.player.Y, app.player.Angle)
 	}
 	// Reload triggers footstep (test).
 	if app.inputManager.IsJustPressed("reload") {
@@ -1015,7 +1031,9 @@ func (app *App) updateDemoEnemies(dt float64) {
 		dist := math.Sqrt(dx*dx + dy*dy)
 		enemy.AttackTimer -= dt
 
-		if dist <= enemy.AttackRange {
+		if enemy.Brain != nil && app.game != nil {
+			app.updateLevelEnemy(enemy, dt, dist)
+		} else if dist <= enemy.AttackRange {
 			enemy.State = "attack"
 			if enemy.AttackTimer <= 0 {
 				enemy.AttackTimer = 1.0
@@ -1063,13 +1081,13 @@ func (app *App) enemyAnimFrame(enemy *DemoEnemy) string {
 	switch enemy.State {
 	case "walk":
 		frames := []int{1, 2, 3, 2}
-		return app.enemyFrame(frames[int(enemy.AnimTimer/0.14)%len(frames)])
+		return app.enemyFrameFor(enemy.FramePrefix, frames[int(enemy.AnimTimer/0.14)%len(frames)])
 	case "attack":
 		frames := []int{4, 5}
-		return app.enemyFrame(frames[int(enemy.AnimTimer/0.12)%len(frames)])
+		return app.enemyFrameFor(enemy.FramePrefix, frames[int(enemy.AnimTimer/0.12)%len(frames)])
 	default:
 		frames := []int{0, 1}
-		return app.enemyFrame(frames[int(enemy.AnimTimer/0.45)%len(frames)])
+		return app.enemyFrameFor(enemy.FramePrefix, frames[int(enemy.AnimTimer/0.45)%len(frames)])
 	}
 }
 

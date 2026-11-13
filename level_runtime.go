@@ -22,6 +22,7 @@ import (
 	"github.com/go-gl/glfw/v3.3/glfw"
 
 	"aiengine/level"
+	"aiengine/nav"
 	"aiengine/parser"
 	"aiengine/renderer"
 	"aiengine/scripting"
@@ -91,6 +92,13 @@ func (app *App) startLevel(lv *level.Level) error {
 	g.session = level.NewSession(lv, app.scriptEngine)
 	g.session.Exec.OnTeleportPlayer = func(x, y, z float64) { app.player.X, app.player.Y = x, z }
 	app.scriptEngine.OnRestart = func() { app.restartRequested = true }
+	app.scriptEngine.OnSpawn = func(id, typ string, x, y float64) {
+		params := map[string]string{}
+		for k, v := range lv.EnemyTypes[typ] {
+			params[k] = v
+		}
+		app.spawnLevelEnemy(level.Placement{Kind: "enemy", Type: typ, ID: id, X: x, Y: y, Params: params})
+	}
 	app.scriptEngine.OnExit = func() { app.window.SetShouldClose(true) }
 	app.game = g
 
@@ -179,18 +187,69 @@ func (app *App) placementTexture(name string) string {
 
 func (app *App) spawnLevelEnemy(p level.Placement) {
 	hp := p.Float("hp", 50)
-	sprite := &renderer.Sprite{X: p.X, Y: p.Y, Scale: p.Float("scale", 0.85), TexName: app.enemyFrame(0), Alpha: 1, Active: true, EntityID: p.ID}
+	prefix := ""
+	if atlas := p.Params["atlas"]; atlas != "" {
+		prefix = "atlas_" + strings.NewReplacer("/", "_", "\\", "_", ".", "_").Replace(atlas)
+		if app.texManager.Get(prefix+"_0") == nil {
+			if err := app.texManager.LoadSpriteSheet(prefix, projectPath(filepath.FromSlash(atlas)), 3, 2); err != nil {
+				log.Printf("[Level] enemy atlas %s: %v", atlas, err)
+				prefix = ""
+			}
+		}
+	}
+	sprite := &renderer.Sprite{X: p.X, Y: p.Y, Scale: p.Float("scale", 0.85), Alpha: 1, Active: true, EntityID: p.ID}
+	sprite.Z = p.Float("z", 0)
 	enemy := &DemoEnemy{
 		ID: p.ID, Sprite: sprite, HP: hp, MaxHP: hp,
 		Speed:       p.Float("speed", 1.15),
 		Damage:      p.Float("damage", 8),
 		AttackRange: p.Float("range", 0.85),
+		AttackRate:  p.Float("attack_rate", 1.0),
 		SightRange:  p.Float("sight", 6.5),
 		State:       "idle", Alive: true,
+		FramePrefix: prefix,
+		Brain:       level.NewBrain(p.Params["behavior"], p.X, p.Y, int64(len(app.enemies)+1)),
 	}
+	sprite.TexName = app.enemyFrameFor(prefix, 0)
 	app.enemies = append(app.enemies, enemy)
 	app.sprites = append(app.sprites, sprite)
 	app.scriptEngine.Entities[p.ID] = &scripting.EntityState{ID: p.ID, Type: p.Type, HP: hp, MaxHP: hp, X: p.X, Y: p.Y, Alive: true}
+}
+
+// updateLevelEnemy runs behaviour (level.Brain), A* steering (package nav)
+// and attacks for one level enemy.
+func (app *App) updateLevelEnemy(e *DemoEnemy, dt, dist float64) {
+	lv := app.game.lv
+	ex, ey := e.Sprite.X, e.Sprite.Y
+	sees := dist < e.sightRange() && !app.hasWallBetween(ex, ey, app.player.X, app.player.Y)
+	if dist <= e.AttackRange && sees {
+		e.State = "attack"
+		if e.AttackTimer <= 0 {
+			e.AttackTimer = e.AttackRate
+			if app.console == nil || !app.console.CheatEnabled(systems.CheatGod) {
+				app.scriptEngine.SetPlayerHP(app.scriptEngine.GetPlayerHP() - e.Damage)
+			}
+		}
+		return
+	}
+	tx, ty, move := e.Brain.Think(lv, ex, ey, app.player.X, app.player.Y, dt, e.sightRange(), dist, sees)
+	if !move {
+		e.State = "idle"
+		return
+	}
+	dx, dy, ok := nav.Steer(lv, ex, ey, tx, ty, 0.2)
+	if !ok {
+		e.State = "idle"
+		return
+	}
+	e.State = "walk"
+	stepX, stepY := dx*e.Speed*dt, dy*e.Speed*dt
+	if !app.isWallAt(ex+stepX, ey) && !app.enemyBlocked(e, ex+stepX, ey) {
+		e.Sprite.X += stepX
+	}
+	if !app.isWallAt(e.Sprite.X, ey+stepY) && !app.enemyBlocked(e, e.Sprite.X, ey+stepY) {
+		e.Sprite.Y += stepY
+	}
 }
 
 // updateLevel runs the session after player movement.
