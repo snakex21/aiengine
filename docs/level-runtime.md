@@ -91,6 +91,44 @@ Skrypty (Lua, w JS jako `engine.*`): `setLight(id, poziom)`,
 `setLightEffect(id, "flicker"|"pulse"|"strobe"|"steady"|"off")`,
 `setCellLight(x, y, poziom)` (np. własne pulsowanie w `onUpdate`).
 Przykład: `maps/testy/swiatlo.aie`.
+
+### Mapy sektorowe (`SECTOR` zamiast `GRID`)
+
+Zamiast siatki mapa może składać się z sektorów: wielokątów z własną
+wysokością podłogi i sufitu, światłem i teksturami. Ściany biegną pod
+dowolnym kątem. Silnik sam wybiera renderer: mapa z `SECTOR` idzie przez
+renderer sektorowy, mapa z `GRID` przez dotychczasowy raycaster.
+
+```
+MAP sanktuarium
+PLAYER_START 12 20            # start gracza (x z) - wymagany
+PLAYER_ANGLE -90
+FLOOR_TEX floor               # domyślne tekstury podłogi/sufitu sektorów
+CEILING_TEX ceiling
+LIGHT_AMBIENT 0.55            # światło sektorów bez light=
+SECTOR przedsionek floor=0 ceil=1.5 light=0.5 wall=W : 10 17 14 17 15 19 14 21 10 21 9 19
+SECTOR oltarz floor=0.25 ceil=2.25 step=M : 11 10 13 10 14 11 14 13 13 14 11 14 10 13 10 11
+```
+
+Po dwukropku są punkty obrysu (x z, co najmniej 3, w dowolnym kierunku).
+Krawędź o tych samych dwóch końcach w dwóch sektorach to przejście (portal),
+pozostałe to ściany. Sektory muszą stykać się wspólnymi wierzchołkami,
+bez „T" w połowie krawędzi (błąd przy wczytaniu). Klucze: `floor`, `ceil`,
+`light`, `wall` (tekstura ścian: W, S, M, D albo nazwa tekstury), `edges`
+(tekstura każdej krawędzi po kolei, `.` = `wall`), `step` (ścianki stopni
+prowadzących do tego sektora), `floor_tex`, `ceil_tex`, `tag`. Współrzędne
+nie mogą być ujemne. `PLACE`, `TRIGGER`, `SOUND` i światła działają jak na
+siatce. Kolizje, stopnie, upadki i linia wzroku liczą się na liniach
+sektorów; wrogowie szukają drogi po siatce 1×1 próbkowanej z sektorów.
+Drzwi (`PLACE door`) działają na razie tylko na mapach `GRID`.
+
+Konwersja mapy GRID na sektorową (każda wolna kratka staje się sektorem):
+
+```
+aiengine --grid2sectors maps/krypta.aie maps/krypta_sektory.aie
+```
+
+Przykład: poziom `maps/sanktuarium.aie` kampanii Krypty.
 Edytor zachowuje bloki `FLOOR_GRID`/`CEILING_GRID` przy zapisie (malowanie
 wysokości w edytorze jeszcze nie istnieje).
 

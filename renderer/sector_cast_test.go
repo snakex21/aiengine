@@ -75,8 +75,8 @@ func TestSectorRendererMatchesGridRenderer(t *testing.T) {
 // sector shows its lower face with the projected height.
 func TestSectorAngledWallAndPortal(t *testing.T) {
 	m, err := sector.Build([]sector.Def{
-		{Sector: sector.Sector{ID: "a", Floor: 0, Ceil: 1, Light: 1, Poly: []sector.Vec2{{0, 0}, {6, 0}, {6, 2}, {6, 4}, {0, 4}}}, WallTex: "W"},
-		{Sector: sector.Sector{ID: "b", Floor: 0.25, Ceil: 1, Light: 1, StepTex: "M", Poly: []sector.Vec2{{6, 2}, {6, 0}, {10, 1}, {10, 3}, {6, 4}}}, WallTex: "S"},
+		{Sector: sector.Sector{ID: "a", Floor: 0, Ceil: 1, Light: 1, Poly: pts(0, 0, 6, 0, 6, 2, 6, 4, 0, 4)}, WallTex: "W"},
+		{Sector: sector.Sector{ID: "b", Floor: 0.25, Ceil: 1, Light: 1, StepTex: "M", Poly: pts(6, 2, 6, 0, 10, 1, 10, 3, 6, 4)}, WallTex: "S"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -121,8 +121,8 @@ func TestSectorAngledWallAndPortal(t *testing.T) {
 
 func TestSectorSpritesStandOnSectorFloor(t *testing.T) {
 	m, err := sector.Build([]sector.Def{
-		{Sector: sector.Sector{ID: "low", Floor: 0, Ceil: 2, Light: 1, Poly: []sector.Vec2{{0, 0}, {5, 0}, {5, 4}, {0, 4}}}, WallTex: "W"},
-		{Sector: sector.Sector{ID: "high", Floor: 0.5, Ceil: 2, Light: 1, Poly: []sector.Vec2{{5, 0}, {9, 0}, {9, 4}, {5, 4}}}, WallTex: "W"},
+		{Sector: sector.Sector{ID: "low", Floor: 0, Ceil: 2, Light: 1, Poly: pts(0, 0, 5, 0, 5, 4, 0, 4)}, WallTex: "W"},
+		{Sector: sector.Sector{ID: "high", Floor: 0.5, Ceil: 2, Light: 1, Poly: pts(5, 0, 9, 0, 9, 4, 5, 4)}, WallTex: "W"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -158,4 +158,13 @@ func BenchmarkGridRichRender1080p(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		g.renderToBuffer(nil)
 	}
+}
+
+// pts builds a polygon from x, y pairs.
+func pts(xy ...float64) []sector.Vec2 {
+	out := make([]sector.Vec2, 0, len(xy)/2)
+	for i := 0; i+1 < len(xy); i += 2 {
+		out = append(out, sector.Vec2{X: xy[i], Y: xy[i+1]})
+	}
+	return out
 }
