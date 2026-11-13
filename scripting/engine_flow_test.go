@@ -1,6 +1,7 @@
 package scripting
 
 import (
+	"aiengine/renderer"
 	"reflect"
 	"testing"
 )
@@ -106,5 +107,21 @@ func TestJSSetTimeoutRunsOnTick(t *testing.T) {
 	}
 	if n := jb.VM.Get("n").ToInteger(); n != 3 {
 		t.Fatalf("interval ran %d times, want 3", n)
+	}
+}
+
+func TestSetFilterFromLuaAndDefaultMessageDuration(t *testing.T) {
+	e := NewEngine()
+	e.Effects = renderer.DefaultEffects()
+	lb := NewLuaBridge(e)
+	defer lb.Close()
+	if err := lb.DoString(`setFilter("red_flash", 0.5) setFilter("desaturate", 1) showMessage("hi")`); err != nil {
+		t.Fatal(err)
+	}
+	if e.Effects.RedTint != 0.5 || e.Effects.Desaturate != 1 {
+		t.Fatalf("effects = %+v", e.Effects)
+	}
+	if e.MessageTTL != DefaultMessageSeconds {
+		t.Fatalf("MessageTTL = %v", e.MessageTTL)
 	}
 }

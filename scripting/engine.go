@@ -597,6 +597,36 @@ func (e *Engine) SetHUDVisible(visible bool) {
 	e.mu.Unlock()
 }
 
+// DefaultMessageSeconds is how long script messages stay up when the script
+// does not pass a duration (pass 0 for a sticky message).
+const DefaultMessageSeconds = 4.0
+
+// SetFilter sets a screen effect by name (shared by Lua setFilter and JS
+// UI.setFilter). Unknown names are ignored.
+func (e *Engine) SetFilter(name string, v float64) {
+	if e.Effects == nil || v != v {
+		return
+	}
+	switch name {
+	case "chromatic_aberration":
+		e.Effects.ChromaticAberration = v
+	case "vignette":
+		e.Effects.Vignette = v
+	case "blur":
+		e.Effects.BlurAmount = v
+	case "red_flash", "red_tint":
+		e.Effects.RedTint = v
+	case "noise", "film_grain":
+		e.Effects.FilmGrain = v
+	case "desaturate":
+		e.Effects.Desaturate = v
+	case "brightness":
+		e.Effects.Brightness = v
+	default:
+		log.Printf("[Script] setFilter: unknown filter %q", name)
+	}
+}
+
 // --- Variable API ---
 
 // GetVar retrieves a script variable.

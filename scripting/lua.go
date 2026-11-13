@@ -221,7 +221,12 @@ func (lb *LuaBridge) registerAPI() {
 
 	// --- UI API ---
 	L.SetGlobal("showMessage", L.NewFunction(func(L *lua.LState) int {
-		e.ShowMessageFor(L.CheckString(1), float64(L.OptNumber(2, 0)))
+		e.ShowMessageFor(L.CheckString(1), float64(L.OptNumber(2, DefaultMessageSeconds)))
+		return 0
+	}))
+
+	L.SetGlobal("setFilter", L.NewFunction(func(L *lua.LState) int {
+		e.SetFilter(L.CheckString(1), float64(L.CheckNumber(2)))
 		return 0
 	}))
 

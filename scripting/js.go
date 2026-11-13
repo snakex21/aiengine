@@ -276,7 +276,7 @@ func (jb *JSBridge) registerAPI() {
 	})
 
 	uiObj.Set("setMessage", func(call goja.FunctionCall) goja.Value {
-		e.ShowMessageFor(call.Argument(0).String(), call.Argument(1).ToFloat())
+		e.ShowMessageFor(call.Argument(0).String(), optSeconds(call, 1))
 		return goja.Undefined()
 	})
 
@@ -305,20 +305,7 @@ func (jb *JSBridge) registerAPI() {
 		name := call.Argument(0).String()
 		intensity := call.Argument(1).ToFloat()
 		log.Printf("[JS] UI.setFilter(%s, %f)", name, intensity)
-		if e.Effects != nil {
-			switch name {
-			case "chromatic_aberration":
-				e.Effects.ChromaticAberration = intensity
-			case "vignette":
-				e.Effects.Vignette = intensity
-			case "blur":
-				e.Effects.BlurAmount = intensity
-			case "red_flash":
-				e.Effects.RedTint = intensity
-			case "noise":
-				e.Effects.FilmGrain = intensity
-			}
-		}
+		e.SetFilter(name, intensity)
 		return goja.Undefined()
 	})
 
@@ -412,7 +399,7 @@ func (jb *JSBridge) registerAPI() {
 
 	// --- Global convenience functions (matching Lua style) ---
 	vm.Set("showMessage", func(call goja.FunctionCall) goja.Value {
-		e.ShowMessage(call.Argument(0).String())
+		e.ShowMessageFor(call.Argument(0).String(), optSeconds(call, 1))
 		return goja.Undefined()
 	})
 
@@ -545,4 +532,13 @@ func optString(call goja.FunctionCall, i int) string {
 		return ""
 	}
 	return v.String()
+}
+
+// optSeconds returns argument i as seconds, or DefaultMessageSeconds when absent.
+func optSeconds(call goja.FunctionCall, i int) float64 {
+	v := call.Argument(i)
+	if goja.IsUndefined(v) || goja.IsNull(v) {
+		return DefaultMessageSeconds
+	}
+	return v.ToFloat()
 }
