@@ -21,3 +21,7 @@ scratch/
 # OS
 .DS_Store
 Thumbs.db
+
+# Player settings written by games (projects/<name>/settings.aie)
+projects/*/settings.aie
+projects/*/settings.aie.tmp
