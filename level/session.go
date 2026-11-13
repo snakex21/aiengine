@@ -3,6 +3,8 @@ package level
 import (
 	"log"
 	"math"
+	"strconv"
+	"strings"
 
 	"aiengine/gameplay"
 	"aiengine/scripting"
@@ -104,6 +106,26 @@ func NewSession(lv *Level, eng *scripting.Engine) *Session {
 		},
 	}
 	s.Triggers.SetExecutor(s.Exec)
+
+	// Expose level facts to scripts: level_name, items_<type> counts and
+	// every MAP property VAR_<NAME> as variable <name> (number if numeric).
+	eng.SetVar("level_name", lv.Name)
+	counts := map[string]float64{}
+	for _, p := range lv.ByKind("item") {
+		counts[p.Type]++
+	}
+	for typ, n := range counts {
+		eng.SetVar("items_"+typ, n)
+	}
+	for k, v := range lv.Props {
+		if name, ok := strings.CutPrefix(k, "VAR_"); ok && name != "" {
+			if f, err := strconv.ParseFloat(v, 64); err == nil {
+				eng.SetVar(strings.ToLower(name), f)
+			} else {
+				eng.SetVar(strings.ToLower(name), v)
+			}
+		}
+	}
 	for _, t := range lv.Triggers {
 		s.Triggers.AddTrigger(t)
 	}

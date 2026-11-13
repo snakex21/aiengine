@@ -164,3 +164,16 @@ func TestSessionLoseOnDeath(t *testing.T) {
 		t.Fatalf("state %v", s.State)
 	}
 }
+
+func TestSessionExposesLevelVars(t *testing.T) {
+	doc, _ := parser.ParseAIE(strings.NewReader("MAP v\nVAR_TIME_LIMIT 90\nVAR_MODE hard\nGRID\nW W W\nW P W\nW W W\nPLACE item gem 1.5 0 1.5\nPLACE item gem 1.5 0 1.5\n"))
+	lv, err := FromDocument(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng := scripting.NewEngine()
+	NewSession(lv, eng)
+	if eng.GetVar("time_limit") != 90.0 || eng.GetVar("mode") != "hard" || eng.GetVar("items_gem") != 2.0 || eng.GetVar("level_name") != "v" {
+		t.Fatalf("vars = %v", eng.VarsSnapshot())
+	}
+}

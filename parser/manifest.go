@@ -22,7 +22,16 @@ type Manifest struct {
 	PlayerAssets string
 	PlayerAtlas  string
 	EnemyAtlas   string
+	Menu         string       // MENU menu.aie: UI/menu definition (optional)
+	Levels       []LevelEntry // LEVEL lines, in order (optional)
 	Raw          map[string]string
+}
+
+// LevelEntry is a "LEVEL <id> <map path> [title...]" manifest line.
+type LevelEntry struct {
+	ID    string
+	Path  string
+	Title string // defaults to ID
 }
 
 func DefaultManifest() *Manifest {
@@ -78,6 +87,17 @@ func ParseManifest(r io.Reader) (*Manifest, error) {
 			m.PlayerAtlas = value
 		case "ENEMY_ATLAS":
 			m.EnemyAtlas = value
+		case "MENU":
+			m.Menu = value
+		case "LEVEL":
+			if len(fields) < 3 {
+				return nil, fmt.Errorf("LEVEL needs <id> <map path> [title]: %q", line)
+			}
+			e := LevelEntry{ID: fields[1], Path: fields[2], Title: strings.Join(fields[3:], " ")}
+			if e.Title == "" {
+				e.Title = e.ID
+			}
+			m.Levels = append(m.Levels, e)
 		default:
 			m.Raw[directive] = value
 		}
@@ -86,6 +106,24 @@ func ParseManifest(r io.Reader) (*Manifest, error) {
 		return nil, fmt.Errorf("reading manifest: %w", err)
 	}
 	return m, nil
+}
+
+// LevelList returns the declared levels, or MAIN_MAP as a single level.
+func (m *Manifest) LevelList() []LevelEntry {
+	if len(m.Levels) > 0 {
+		return m.Levels
+	}
+	return []LevelEntry{{ID: "main", Path: m.MainMap, Title: m.Project}}
+}
+
+// FindLevel returns the level with the given id.
+func (m *Manifest) FindLevel(id string) (LevelEntry, bool) {
+	for _, l := range m.LevelList() {
+		if strings.EqualFold(l.ID, id) {
+			return l, true
+		}
+	}
+	return LevelEntry{}, false
 }
 
 func ParseManifestFile(path string) (*Manifest, error) {

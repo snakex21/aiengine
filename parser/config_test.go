@@ -115,3 +115,23 @@ BIND move_left A
 		t.Errorf("expected move_forward=w, got %s", cfg.GetBinding("MOVE_FORWARD"))
 	}
 }
+
+func TestManifestLevelsAndMenu(t *testing.T) {
+	m, err := ParseManifest(strings.NewReader("MANIFEST\n  MAIN_MAP maps/a.aie\n  MENU menu.aie\n  LEVEL a maps/a.aie Kryształowa Krypta\n  LEVEL b maps/b.aie\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Menu != "menu.aie" || len(m.Levels) != 2 || m.Levels[0].Title != "Kryształowa Krypta" || m.Levels[1].Title != "b" {
+		t.Fatalf("manifest %+v", m)
+	}
+	if l, ok := m.FindLevel("B"); !ok || l.Path != "maps/b.aie" {
+		t.Fatal("FindLevel")
+	}
+	single, _ := ParseManifest(strings.NewReader("MAIN_MAP maps/x.aie\n"))
+	if ll := single.LevelList(); len(ll) != 1 || ll[0].Path != "maps/x.aie" {
+		t.Fatalf("LevelList fallback %+v", ll)
+	}
+	if _, err := ParseManifest(strings.NewReader("LEVEL onlyid\n")); err == nil {
+		t.Fatal("expected error for incomplete LEVEL")
+	}
+}
