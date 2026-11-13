@@ -103,7 +103,9 @@ PLACE enemy straznik s1 19.5 0 3.5 behavior=ambush hp=70
 
 | Parametr | Znaczenie |
 |---|---|
-| `hp`, `speed`, `damage`, `range`, `attack_rate`, `sight` | statystyki |
+| `hp`, `speed`, `damage`, `range`, `attack_rate`, `sight` | statystyki; `range` zawsze ≥ 0.7 (separacja 0.5 + 0.2) |
+| `windup` | zamach przed ciosem (domyślnie 0.3 s); gracz może uciec |
+| `attack_sound` | dźwięk trafienia (domyślnie proceduralny `player_hurt`) |
 | `atlas` | własny atlas 3×2 (klatki: stoi, 3× chód, 2× atak); domyślnie `ENEMY_ATLAS` |
 | `scale`, `z` | rozmiar sprite'a i przesunięcie w pionie (`z=(1-scale)/2` stawia go na podłodze) |
 | `behavior` | `chase` (domyślne: goni i szuka w miejscu, gdzie ostatnio widział gracza), `guard` (wraca na posterunek), `wander` (krąży w okolicy), `ambush` (stoi, aż gracz podejdzie na połowę zasięgu wzroku) |
@@ -113,6 +115,14 @@ Ruch przeciwnika:
 - Gdy nie jest, korzysta z **A\*** po siatce (pakiet `nav`) i omija narożniki,
   zamiast się na nich zatrzymywać.
 - Widzi gracza tylko wtedy, gdy między nimi nie ma ściany.
+
+Walkę obsługuje `level.Fighter`, który działa także bez okna:
+- przeciwnik zatrzymuje się 0.5 od gracza i nie nachodzi na niego,
+- atakuje tylko z linii wzroku,
+- cios poprzedza zamach (klatki ataku), potem jest przerwa `attack_rate`,
+- trafienie gra dźwięk, daje czerwony błysk i krótki wstrząs kamery oraz
+  wpis `[Combat]` w logu,
+- śmierć gracza kończy poziom przegraną.
 
 `spawnEnemy(typ, x, y)` z Lua tworzy widocznego przeciwnika według typu z
 `enemy_type`. Krypta korzysta z tego w walce z bossem.
