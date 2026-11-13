@@ -70,6 +70,7 @@ type frame struct {
 	ceil, flr         [4]uint8
 	floorTex, ceilTex *Texture2D
 	wallTex           [5]*Texture2D // indexed by MapCell
+	rowDist, rowShade []float64     // per screen row: floor/ceiling distance and shade
 	px, py, angle     float64
 }
 
@@ -92,6 +93,26 @@ func (rc *Raycaster) renderToBuffer(sprites []*Sprite) {
 	}
 	for cell, name := range map[MapCell]string{CellWall1: "brick", CellWall2: "stone", CellWall3: "metal", CellDoor: "wood"} {
 		f.wallTex[cell] = usableTex(rc.TexManager.Get(name))
+	}
+	// Floor/ceiling distance and shade depend only on the row: compute once.
+	if f.floorTex != nil || f.ceilTex != nil {
+		f.rowDist = make([]float64, f.sh)
+		f.rowShade = make([]float64, f.sh)
+		ceilK := f.fsh * (0.5 - f.camHeight)
+		floorK := f.fsh * (0.5 + f.camHeight)
+		for y := 0; y < f.sh; y++ {
+			var d float64
+			if fy := float64(y); fy < f.horizon {
+				d = ceilK / (f.horizon - fy)
+			} else {
+				d = floorK / (fy + 0.5 - f.horizon)
+			}
+			f.rowDist[y] = d
+			f.rowShade[y] = 0.85
+			if d > 1 {
+				f.rowShade[y] = 0.85 / math.Sqrt(d)
+			}
+		}
 	}
 	if len(rc.zBuffer) != f.sw {
 		rc.zBuffer = make([]float64, f.sw)
@@ -187,26 +208,24 @@ func (rc *Raycaster) castColumn(f *frame, x int) {
 	}
 
 	// Ceiling.
-	ceilK := f.fsh * (0.5 - f.camHeight)
 	for y := 0; y < drawStart; y++ {
 		idx := (y*sw + x) * 4
 		if f.ceilTex == nil || float64(y) >= f.horizon {
 			copy(rc.pixels[idx:idx+4], f.ceil[:])
 			continue
 		}
-		d := ceilK / (f.horizon - float64(y))
-		rc.planePixel(idx, f.ceilTex, f.px+rayDirX*d, f.py+rayDirY*d, d)
+		d := f.rowDist[y]
+		rc.planePixel(idx, f.ceilTex, f.px+rayDirX*d, f.py+rayDirY*d, f.rowShade[y])
 	}
 	// Floor.
-	floorK := f.fsh * (0.5 + f.camHeight)
 	for y := drawEnd; y < sh; y++ {
 		idx := (y*sw + x) * 4
 		if f.floorTex == nil || float64(y) <= f.horizon {
 			copy(rc.pixels[idx:idx+4], f.flr[:])
 			continue
 		}
-		d := floorK / (float64(y) + 0.5 - f.horizon)
-		rc.planePixel(idx, f.floorTex, f.px+rayDirX*d, f.py+rayDirY*d, d)
+		d := f.rowDist[y]
+		rc.planePixel(idx, f.floorTex, f.px+rayDirX*d, f.py+rayDirY*d, f.rowShade[y])
 	}
 	_ = wallBottom
 	if !hit {
@@ -260,22 +279,19 @@ func (rc *Raycaster) castColumn(f *frame, x int) {
 	}
 }
 
-// planePixel samples a floor/ceiling texture at world (wx, wy), shaded by
-// distance like walls (one texture repeat per map cell).
-func (rc *Raycaster) planePixel(idx int, t *Texture2D, wx, wy, d float64) {
+// planePixel samples a floor/ceiling texture at world (wx, wy) with a
+// precomputed distance shade (one texture repeat per map cell).
+func (rc *Raycaster) planePixel(idx int, t *Texture2D, wx, wy, shade float64) {
 	tw, th := int(t.Width), int(t.Height)
 	tx := int((wx-math.Floor(wx))*float64(tw)) & (tw - 1)
 	ty := int((wy-math.Floor(wy))*float64(th)) & (th - 1)
 	src := (ty*tw + tx) * 4
-	shade := 1.0
-	if d > 1 {
-		shade = 1 / math.Sqrt(d)
-	}
-	shade *= 0.85
-	rc.pixels[idx] = uint8(float64(t.Pixels[src]) * shade)
-	rc.pixels[idx+1] = uint8(float64(t.Pixels[src+1]) * shade)
-	rc.pixels[idx+2] = uint8(float64(t.Pixels[src+2]) * shade)
-	rc.pixels[idx+3] = 255
+	px := t.Pixels[src : src+3 : src+3]
+	dst := rc.pixels[idx : idx+4 : idx+4]
+	dst[0] = uint8(float64(px[0]) * shade)
+	dst[1] = uint8(float64(px[1]) * shade)
+	dst[2] = uint8(float64(px[2]) * shade)
+	dst[3] = 255
 }
 
 func clampInt(v, lo, hi int) int {
