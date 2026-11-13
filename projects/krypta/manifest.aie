@@ -1,0 +1,13 @@
+# manifest.aie — Krysztalowa Krypta (gra testowa AIEngine)
+MANIFEST
+  PROJECT Krysztalowa Krypta
+  ENGINE  aiengine 1.0
+  CREATED 2026-11-13
+  FORMAT  project v1
+  RUNTIME level
+  CONFIG config.aie
+  MAIN_MAP maps/krypta.aie
+  MAIN_SCRIPT scripts/krypta.lua
+  PLAYER_ASSETS assets/sprites/player
+  ENEMY_ATLAS straznik.png
+  RESTART_HINT ENTER - ZAGRAJ PONOWNIE   ESC - PAUZA

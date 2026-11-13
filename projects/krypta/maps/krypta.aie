@@ -1,0 +1,92 @@
+# maps/krypta.aie — Krysztalowa Krypta
+# Zbierz 6 krysztalow, omijaj kaluze kwasu i straznikow,
+# a potem uciekaj portalem za runiczna brama (D).
+#
+# GRID: W = mur krypty, S = omszaly kamien, M = brazowa sciana z runa,
+#       D = brama, P = start gracza, . = podloga
+# PLACE <rodzaj> <typ> <id> <x> <wysokosc> <z>   (x = kolumna, z = wiersz)
+
+MAP krypta
+PLAYER_ANGLE 15
+PLAYER_HP 100
+FLOOR_COLOR #1E1A24
+CEILING_COLOR #0C0B14
+
+GRID
+W W W W W W W W W W W W W W W W
+W . . . . W . . . . . . W . . W
+W . P . . W . . . . . . W . . W
+W . . . . . . . S S . . M . . W
+W . . . . W . . S S . . D . . W
+W W . W W W . . . . . . M . . W
+W . . . . W W W . W W W W W W W
+W . . . . . . W . W . . . . . W
+W . S . . . . W . . . . S . . W
+W . S . . . . W . W . . S . . W
+W . . . . . . . . W . . . . . W
+W W W W . W W W . W W W W . . W
+W . . . . . . . . . . . . . . W
+W W W W W W W W W W W W W W W W
+
+# Krysztaly (6) — bob= unosi sprite nad podloga
+PLACE item crystal k1 10.5 0 1.5 bob=0.15
+PLACE item crystal k2 6.5 0 4.5 bob=0.15
+PLACE item crystal k3 1.5 0 9.5 bob=0.15
+PLACE item crystal k4 5.5 0 7.5 bob=0.15
+PLACE item crystal k5 13.5 0 9.5 bob=0.15
+PLACE item crystal k6 1.5 0 12.5 bob=0.15
+
+# Mikstury leczace
+PLACE item potion m1 14.5 0 12.5 scale=0.35
+PLACE item potion m2 3.5 0 1.5 scale=0.35
+
+# Kaluze kwasu (strefy zadajace obrazenia — obsluga w Lua)
+PLACE zone acid kwas1 7.5 0 2.5 radius=0.45 sprite=acid scale=0.7
+PLACE zone acid kwas2 3.5 0 9.5 radius=0.45 sprite=acid scale=0.7
+PLACE zone acid kwas3 11.5 0 9.5 radius=0.45 sprite=acid scale=0.7
+PLACE zone acid kwas4 10.5 0 12.5 radius=0.45 sprite=acid scale=0.7
+
+# Straznicy krypty
+PLACE enemy straznik s1 10.5 0 4.5 hp=50 speed=0.9 damage=10 sight=5
+PLACE enemy straznik s2 13.5 0 7.5 hp=50 speed=0.9 damage=10 sight=5
+PLACE enemy straznik s3 5.5 0 9.5 hp=50 speed=0.9 damage=10 sight=5
+
+# Brama do komnaty z portalem i sam portal
+PLACE door brama 12 0 4
+PLACE zone exit portal 13.5 0 2.5 radius=0.6 sprite=portal scale=0.9
+
+# Proceduralne dzwieki
+SOUND ding
+  WAVEFORM sine
+  FREQUENCY 1320
+  DECAY 0.25
+  VOLUME 0.5
+
+SOUND gate
+  WAVEFORM square
+  FREQUENCY 110
+  DECAY 0.9
+  VOLUME 0.4
+
+SOUND sizzle
+  TYPE noise
+  FREQUENCY 400
+  DECAY 0.15
+  VOLUME 0.3
+
+SOUND heal
+  WAVEFORM triangle
+  FREQUENCY 660
+  DECAY 0.4
+  VOLUME 0.5
+
+# Triggery: brama otwiera sie, gdy skrypt doliczy 6 krysztalow
+TRIGGER brama_otwarta
+  CONDITION var_at_least krysztaly 6
+  ACTION unlock_door brama
+  ACTION play_sound gate
+  ACTION show_message "BRAMA OTWARTA! BIEGNIJ DO PORTALU"
+
+TRIGGER pierwszy_kwas
+  CONDITION player_enters kwas1
+  ACTION show_message "KWAS PALI! OMIJAJ ZIELONE KALUZE"

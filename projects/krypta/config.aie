@@ -1,0 +1,17 @@
+# config.aie — sterowanie Krysztalowej Krypty
+WINDOW_WIDTH 1280
+WINDOW_HEIGHT 720
+
+BIND move_forward W
+BIND move_backward S
+BIND move_left A
+BIND move_right D
+
+BIND shoot MOUSE_LEFT
+BIND jump SPACE
+BIND crouch C
+BIND sprint LEFT_SHIFT
+
+BIND restart ENTER
+BIND fullscreen F11
+BIND pause ESCAPE
