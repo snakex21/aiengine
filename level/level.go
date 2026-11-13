@@ -86,6 +86,17 @@ type Level struct {
 	sectorLights [][]sectorLight
 
 	doors map[string]*door
+
+	// Animated sectors (movers.go): grid cell tags (TAG_GRID), movers, and
+	// for sector maps the nav-grid cells they refresh.
+	cellTags     []string
+	movers       []*Mover
+	moverTags    map[string][]*Mover
+	rasterCentre map[int]int
+	rasterExtra  map[int][]int
+
+	// Switches (PLACE switch) and texture animations (texanim.go).
+	TexAnims []renderer.TexAnim
 }
 
 // DoorInfo describes a door for the host and scripts.
@@ -96,11 +107,23 @@ type DoorInfo struct {
 	Secret bool   // looks like a wall; opens with "interact"
 	Use    bool   // opens with "interact" (plain grid doors)
 	Open   bool
+	Anim   bool // slides open (a door mover) instead of vanishing
 }
 
 type door struct {
 	DoorInfo
-	Cell renderer.MapCell
+	Cell   renderer.MapCell
+	params map[string]string
+	mover  *Mover
+}
+
+// info returns the door's public state (animated doors report their mover).
+func (d *door) info() DoorInfo {
+	di := d.DoorInfo
+	if d.mover != nil {
+		di.Open = d.mover.IsOpen()
+	}
+	return di
 }
 
 // LoadFile parses a .aie file and builds the first MAP in it.
@@ -165,9 +188,16 @@ func FromDocument(doc *parser.AIEDocument) (*Level, error) {
 		if err := lv.buildHeights(mapNode); err != nil {
 			return nil, err
 		}
+		if err := lv.buildTags(mapNode); err != nil {
+			return nil, err
+		}
+		if err := lv.buildTexLayers(mapNode); err != nil {
+			return nil, err
+		}
 	}
 
 	counters := map[string]int{}
+	var moverSpecs []moverSpec
 	for _, child := range mapNode.Children {
 		switch strings.ToUpper(child.Type) {
 		case "PLACE":
@@ -195,14 +225,32 @@ func FromDocument(doc *parser.AIEDocument) (*Level, error) {
 				lv.doors[p.ID] = &door{DoorInfo: DoorInfo{
 					ID: p.ID, X: cx, Y: cy, Key: p.Params["key"],
 					Secret: isYes(p.Params["secret"]), Use: isYes(p.Params["use"]),
-				}, Cell: cell}
+				}, Cell: cell, params: p.Params}
 			}
 			lv.Placements = append(lv.Placements, p)
+		case "MOVER":
+			ms, err := parseMover(child.Name, child.Line)
+			if err != nil {
+				return nil, err
+			}
+			moverSpecs = append(moverSpecs, ms)
+		case "TEXTURE_ANIM":
+			ta, err := ParseTexAnim(child.Name)
+			if err != nil {
+				return nil, fmt.Errorf("line %d: %w", child.Line, err)
+			}
+			lv.TexAnims = append(lv.TexAnims, ta)
 		case "TRIGGER":
 			lv.Triggers = append(lv.Triggers, child)
 		case "SOUND":
 			lv.Sounds = append(lv.Sounds, child)
 		}
+	}
+	if err := lv.buildSlidingDoors(); err != nil {
+		return nil, err
+	}
+	if err := lv.buildMovers(moverSpecs); err != nil {
+		return nil, err
 	}
 	if err := lv.buildLights(mapNode); err != nil {
 		return nil, err
@@ -347,12 +395,18 @@ func (lv *Level) DoorIDs() []string {
 	return ids
 }
 
-// SetDoor opens (clears the cell) or closes (restores it) a door. It returns
-// false for an unknown id.
+// SetDoor opens (clears the cell) or closes (restores it) a door; animated
+// doors slide. An id that is no door but a mover tag opens/closes those
+// movers. It returns false for an unknown id.
 func (lv *Level) SetDoor(id string, open bool) bool {
 	d, ok := lv.doors[id]
 	if !ok {
-		return false
+		return lv.SetDoorMovers(id, open)
+	}
+	if d.mover != nil {
+		lv.SetDoorMovers(d.mover.Tag, open)
+		d.Open = open
+		return true
 	}
 	if open {
 		lv.Map.Grid[d.Y][d.X] = renderer.CellEmpty
@@ -369,14 +423,14 @@ func (lv *Level) Door(id string) (DoorInfo, bool) {
 	if !ok {
 		return DoorInfo{}, false
 	}
-	return d.DoorInfo, true
+	return d.info(), true
 }
 
 // DoorAt returns the door on a cell, if any.
 func (lv *Level) DoorAt(x, y int) (DoorInfo, bool) {
 	for _, d := range lv.doors {
 		if d.X == x && d.Y == y {
-			return d.DoorInfo, true
+			return d.info(), true
 		}
 	}
 	return DoorInfo{}, false
@@ -386,7 +440,7 @@ func (lv *Level) DoorAt(x, y int) (DoorInfo, bool) {
 func (lv *Level) Doors() []DoorInfo {
 	out := make([]DoorInfo, 0, len(lv.doors))
 	for _, d := range lv.doors {
-		out = append(out, d.DoorInfo)
+		out = append(out, d.info())
 	}
 	return out
 }

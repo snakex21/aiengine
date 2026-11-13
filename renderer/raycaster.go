@@ -41,6 +41,14 @@ type MapData struct {
 	Ceil  []float64 // ceiling height (default 1)
 	Side  []MapCell // texture of the cell's step faces (default stone)
 	Light []float64 // light level (default 1), see light.go
+	Flags []uint8   // CellPeg etc. (texanim.go)
+
+	// Optional per-cell textures (texanim.go): TexNames is a palette
+	// (index 0 = map default), the layers index it per cell.
+	TexNames []string
+	FloorTex []uint8
+	CeilTex  []uint8
+	WallTex  []uint8 // walls of a solid cell, step faces of an open one
 }
 
 func NewMapData(grid [][]MapCell) *MapData {
@@ -236,6 +244,18 @@ func (p *PlayerState) SetGround(h float64) {
 	}
 }
 
+// Ride moves a player standing on a moving floor with it: when the floor
+// under the feet went from before to after (a lift, a platform), the player
+// keeps standing on it (no fall, no step smoothing). It reports whether the
+// player was carried.
+func (p *PlayerState) Ride(before, after float64) bool {
+	if !p.Grounded || before == after || math.Abs(p.Feet()-before) > 1e-6 {
+		return false
+	}
+	p.Ground, p.Z = after, 0
+	return true
+}
+
 // PlaceAt puts the player on the ground at height h (spawn, teleport): no
 // fall, no camera smoothing.
 func (p *PlayerState) PlaceAt(h float64) {
@@ -345,6 +365,12 @@ type Raycaster struct {
 	Flash     float64
 	Fog       Fog
 	cellLight []int32
+
+	// Texture animations (texanim.go) and their clock (seconds; the host
+	// advances it with game time).
+	texAnims map[string]*texAnimState
+	AnimTime float64
+	pal      []*Texture2D
 
 	// Sectors, when set, is rendered instead of the grid Map (sector_cast.go).
 	Sectors  *sector.Map

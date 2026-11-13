@@ -54,6 +54,9 @@ type Sector struct {
 	Poly     []Vec2 // outline, in order (either winding)
 	Lines    []int  // indices of the lines bounding it
 	Tag      string // free tag for scripts (doors, lifts, ...)
+	// Peg anchors the texture of step faces into this sector to its
+	// ceiling (set for doors, so the door texture moves with the door).
+	Peg bool
 }
 
 // Line is a wall or portal between two points.
@@ -306,6 +309,29 @@ func (m *Map) touched(p Vec2, r float64, buf []int) (out []int, solid bool) {
 		add(l.Back)
 	})
 	return out, solid
+}
+
+// Touched lists the sectors a body of radius r at (x, y) overlaps (see
+// touched); solid reports a wall within r or a point outside the map.
+func (m *Map) Touched(x, y, r float64, buf []int) (sectors []int, solid bool) {
+	return m.touched(Vec2{x, y}, r, buf)
+}
+
+// Neighbours lists the sectors sharing a portal line with sector s.
+func (m *Map) Neighbours(s int) []int {
+	var out []int
+	for _, li := range m.Sectors[s].Lines {
+		if o := m.Lines[li].Other(s); o >= 0 {
+			dup := false
+			for _, e := range out {
+				dup = dup || e == o
+			}
+			if !dup {
+				out = append(out, o)
+			}
+		}
+	}
+	return out
 }
 
 // Support returns the highest floor and lowest ceiling under a body of

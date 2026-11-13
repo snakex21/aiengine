@@ -70,6 +70,7 @@ type AudioBackend struct {
 	musicVol float64
 	music    *oto.Player
 	musicKey string
+	loops    map[string]*loopPlayer // keyed looping effects (audio_loops.go)
 
 	running bool
 	quit    chan struct{}
@@ -301,6 +302,8 @@ func (ab *AudioBackend) SetVolumes(sfx, music float64) {
 	}
 }
 
+func bytesReader(b []byte) io.Reader { return bytes.NewReader(b) }
+
 // LoopReader endlessly repeats Data (for looping music players).
 type LoopReader struct {
 	Data []byte
@@ -349,6 +352,7 @@ func (ab *AudioBackend) Shutdown() {
 	ab.running = false
 	close(ab.quit)
 	ab.StopMusic()
+	ab.StopLoop("")
 	ab.StopAll()
 	log.Println("[Audio] Backend shut down")
 }

@@ -168,6 +168,46 @@ func (jb *JSBridge) registerAPI() {
 		e.LockDoor(call.Argument(0).String())
 		return goja.Undefined()
 	})
+	engineObj.Set("openDoor", func(call goja.FunctionCall) goja.Value {
+		e.UnlockDoor(call.Argument(0).String())
+		return goja.Undefined()
+	})
+	engineObj.Set("closeDoor", func(call goja.FunctionCall) goja.Value {
+		e.LockDoor(call.Argument(0).String())
+		return goja.Undefined()
+	})
+
+	// Animated sectors (see the Lua API).
+	speedArg := func(call goja.FunctionCall) float64 {
+		if goja.IsUndefined(call.Argument(2)) {
+			return 0
+		}
+		return call.Argument(2).ToFloat()
+	}
+	engineObj.Set("activate", func(call goja.FunctionCall) goja.Value {
+		return vm.ToValue(e.Activate(call.Argument(0).String()))
+	})
+	engineObj.Set("moveFloor", func(call goja.FunctionCall) goja.Value {
+		return vm.ToValue(e.MoveFloor(call.Argument(0).String(), call.Argument(1).ToFloat(), speedArg(call)))
+	})
+	engineObj.Set("moveCeil", func(call goja.FunctionCall) goja.Value {
+		return vm.ToValue(e.MoveCeil(call.Argument(0).String(), call.Argument(1).ToFloat(), speedArg(call)))
+	})
+	engineObj.Set("stopMover", func(call goja.FunctionCall) goja.Value {
+		return vm.ToValue(e.StopMover(call.Argument(0).String()))
+	})
+	engineObj.Set("getFloor", func(call goja.FunctionCall) goja.Value {
+		if h, ok := e.MoverHeight(call.Argument(0).String(), "floor"); ok {
+			return vm.ToValue(h)
+		}
+		return goja.Null()
+	})
+	engineObj.Set("getCeil", func(call goja.FunctionCall) goja.Value {
+		if h, ok := e.MoverHeight(call.Argument(0).String(), "ceil"); ok {
+			return vm.ToValue(h)
+		}
+		return goja.Null()
+	})
 
 	// Sound API.
 	engineObj.Set("playSound", func(call goja.FunctionCall) goja.Value {

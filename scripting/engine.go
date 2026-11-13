@@ -95,6 +95,13 @@ type Engine struct {
 	OnCellLight func(x, y int, level float64) bool
 	OnSpawn     func(id, typ string, x, y float64) // spawnEnemy: host creates the visible enemy
 
+	// Animated sectors (level movers): activate(tag), moveFloor/moveCeil,
+	// stopMover, getFloor/getCeil.
+	OnActivate    func(tag string) bool
+	OnMove        func(tag, plane string, h, speed float64) bool
+	OnStopMover   func(tag string) bool
+	OnMoverHeight func(tag, plane string) (float64, bool)
+
 	// Inventory: item name -> count (keys, relics...).
 	Inventory map[string]int
 
@@ -457,6 +464,43 @@ func (e *Engine) SetCellLight(x, y int, level float64) bool {
 		return false
 	}
 	return e.OnCellLight(x, y, level)
+}
+
+// Activate triggers the movers of a tag (doors, lifts, crushers, ...) like
+// a switch would.
+func (e *Engine) Activate(tag string) bool {
+	if e.OnActivate == nil {
+		return false
+	}
+	return e.OnActivate(tag)
+}
+
+// MoveFloor moves the floor of every piece tagged tag to height h (speed
+// in units per second, <= 0 = default). MoveCeil does the same for ceilings.
+func (e *Engine) MoveFloor(tag string, h, speed float64) bool { return e.move(tag, "floor", h, speed) }
+func (e *Engine) MoveCeil(tag string, h, speed float64) bool  { return e.move(tag, "ceil", h, speed) }
+
+func (e *Engine) move(tag, plane string, h, speed float64) bool {
+	if e.OnMove == nil {
+		return false
+	}
+	return e.OnMove(tag, plane, h, speed)
+}
+
+// StopMover stops looping movers (crushers) of a tag.
+func (e *Engine) StopMover(tag string) bool {
+	if e.OnStopMover == nil {
+		return false
+	}
+	return e.OnStopMover(tag)
+}
+
+// MoverHeight returns the current floor or ceiling height of a mover tag.
+func (e *Engine) MoverHeight(tag, plane string) (float64, bool) {
+	if e.OnMoverHeight == nil {
+		return 0, false
+	}
+	return e.OnMoverHeight(tag, plane)
 }
 
 // LockDoor closes a door via OnDoor.

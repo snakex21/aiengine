@@ -148,6 +148,9 @@ type TriggerExecutor struct {
 	OnSpawnEnemy     func(typ string, x, y, z float64)
 	OnSpawnProp      func(typ string, x, y, z float64)
 	OnExitTo         func(target string) // exit_to <level id|next>
+	// Animated sectors: activate <tag>, move_floor/move_ceil <tag> <h> [speed].
+	OnActivate func(tag string)
+	OnMove     func(tag string, ceil bool, h, speed float64)
 }
 
 // Execute runs all actions for a trigger.
@@ -257,6 +260,19 @@ func (te *TriggerExecutor) executeAction(action *TriggerAction) {
 	case "change_music":
 		if te.OnChangeMusic != nil {
 			te.OnChangeMusic(action.Param)
+		}
+	case "activate":
+		if te.OnActivate != nil {
+			te.OnActivate(strings.TrimSpace(action.Param))
+		}
+	case "move_floor", "move_ceil":
+		parts := strings.Fields(action.Param)
+		if len(parts) >= 2 && te.OnMove != nil {
+			speed := 0.0
+			if len(parts) >= 3 {
+				speed = parseFloat(parts[2])
+			}
+			te.OnMove(parts[0], action.Type == "move_ceil", parseFloat(parts[1]), speed)
 		}
 	default:
 		log.Printf("[Trigger] Unknown action type: %s", action.Type)

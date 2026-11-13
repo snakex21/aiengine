@@ -146,6 +146,9 @@ type frame struct {
 
 	// Sector maps (sector_cast.go); nil for grid maps.
 	sec *sectorFrame
+
+	// Per-cell texture palette of grid maps (texanim.go).
+	pal []*Texture2D
 }
 
 // rowAt is the (fractional) screen row of world height h at distance d.
@@ -177,14 +180,22 @@ func (rc *Raycaster) renderToBuffer(sprites []*Sprite) {
 	f.eye = rc.Player.EyeZ()
 	f.ceil, f.flr = colorToRGBA(rc.CeilColor), colorToRGBA(rc.FloorColor)
 	f.px, f.py = rc.Player.X, rc.Player.Y
+	rc.resolveTexAnims(rc.AnimTime)
 	if rc.FloorTexture != "" {
-		f.floorTex = usableTex(rc.TexManager.Get(rc.FloorTexture))
+		f.floorTex = usableTex(rc.tex(rc.FloorTexture))
 	}
 	if rc.CeilingTexture != "" {
-		f.ceilTex = usableTex(rc.TexManager.Get(rc.CeilingTexture))
+		f.ceilTex = usableTex(rc.tex(rc.CeilingTexture))
 	}
-	for cell, name := range map[MapCell]string{CellWall1: "brick", CellWall2: "stone", CellWall3: "metal", CellDoor: "wood"} {
-		f.wallTex[cell] = usableTex(rc.TexManager.Get(name))
+	for cell, name := range wallTexNames {
+		if name != "" {
+			f.wallTex[cell] = usableTex(rc.tex(name))
+		}
+	}
+	f.pal = rc.pal[:0]
+	if rc.Map != nil && len(rc.Map.TexNames) > 0 {
+		rc.palette(f, rc.Map)
+		rc.pal = f.pal
 	}
 	if len(rc.rowK) != f.sh {
 		rc.rowK = make([]float64, f.sh)
@@ -218,6 +229,8 @@ func (rc *Raycaster) renderToBuffer(sprites []*Sprite) {
 
 	rc.applyScreenEffects(f.sw, f.sh)
 }
+
+var wallTexNames = [...]string{CellWall1: "brick", CellWall2: "stone", CellWall3: "metal", CellDoor: "wood"}
 
 // usableTex returns t if it can be sampled with power-of-two wrapping.
 func usableTex(t *Texture2D) *Texture2D {
@@ -264,6 +277,8 @@ func (rc *Raycaster) castColumn(f *frame, x int) {
 	top, bot := 0, f.sh
 	curF, curC := m.FloorAt(mapX, mapY), m.CeilAt(mapX, mapY)
 	curL := f.light(m, mapX, mapY)
+	ci := f.cellIndex(m, mapX, mapY)
+	curFT, curCT := layerTex(f, m.FloorTex, ci, f.floorTex), layerTex(f, m.CeilTex, ci, f.ceilTex)
 
 	for i := 0; i < maxCastSteps; i++ {
 		var d float64
@@ -282,11 +297,11 @@ func (rc *Raycaster) castColumn(f *frame, x int) {
 
 		// The current cell's ceiling and floor up to this boundary.
 		if e := min(f.rowOf(f.rowAt(curC, d)), bot); e > top {
-			rc.drawPlane(f, x, top, e, curC-f.eye, curL, f.ceilTex, f.ceil, rdx, rdy, true)
+			rc.drawPlane(f, x, top, e, curC-f.eye, curL, curCT, f.ceil, rdx, rdy, true)
 			top = e
 		}
 		if s := max(f.rowOf(f.rowAt(curF, d)), top); s < bot {
-			rc.drawPlane(f, x, s, bot, f.eye-curF, curL, f.floorTex, f.flr, rdx, rdy, false)
+			rc.drawPlane(f, x, s, bot, f.eye-curF, curL, curFT, f.flr, rdx, rdy, false)
 			bot = s
 		}
 
@@ -300,9 +315,10 @@ func (rc *Raycaster) castColumn(f *frame, x int) {
 
 		// Walls and step faces take the light of the cell in front of them.
 		cell := m.GetCell(mapX, mapY)
+		ni := f.cellIndex(m, mapX, mapY)
 		if cell != CellEmpty {
 			if top < bot {
-				rc.drawWall(f, x, top, bot, d, curL, cell, side, wallX)
+				rc.drawWall(f, x, top, bot, d, curL, cell, layerTex(f, m.WallTex, ni, f.cellTex(cell)), side, wallX, 1)
 			}
 			rc.zBuffer[x] = d
 			clips = append(clips, clipEntry{d, int32(top), int32(top)})
@@ -310,16 +326,29 @@ func (rc *Raycaster) castColumn(f *frame, x int) {
 		}
 
 		nF, nC := m.FloorAt(mapX, mapY), m.CeilAt(mapX, mapY)
-		if nC < curC { // upper step face (lower ceiling ahead)
-			if e := min(f.rowOf(f.rowAt(nC, d)), bot); e > top {
-				rc.drawWall(f, x, top, e, d, curL, m.SideAt(mapX, mapY), side, wallX)
-				top = e
+		if nC < curC || nF > curF {
+			sc := m.SideAt(mapX, mapY)
+			st := layerTex(f, m.WallTex, ni, f.cellTex(sc))
+			peg := m.Flags != nil && ni >= 0 && m.Flags[ni]&CellPeg != 0
+			if nC < curC { // upper step face (lower ceiling ahead)
+				if e := min(f.rowOf(f.rowAt(nC, d)), bot); e > top {
+					a := 1.0
+					if peg {
+						a = nC
+					}
+					rc.drawWall(f, x, top, e, d, curL, sc, st, side, wallX, a)
+					top = e
+				}
 			}
-		}
-		if nF > curF { // lower step face (higher floor ahead)
-			if s := max(f.rowOf(f.rowAt(nF, d)), top); s < bot {
-				rc.drawWall(f, x, s, bot, d, curL, m.SideAt(mapX, mapY), side, wallX)
-				bot = s
+			if nF > curF { // lower step face (higher floor ahead)
+				if s := max(f.rowOf(f.rowAt(nF, d)), top); s < bot {
+					a := 1.0
+					if peg {
+						a = nF
+					}
+					rc.drawWall(f, x, s, bot, d, curL, sc, st, side, wallX, a)
+					bot = s
+				}
 			}
 		}
 		clips = append(clips, clipEntry{d, int32(top), int32(bot)})
@@ -328,11 +357,20 @@ func (rc *Raycaster) castColumn(f *frame, x int) {
 			return
 		}
 		curF, curC, curL = nF, nC, f.light(m, mapX, mapY)
+		curFT, curCT = layerTex(f, m.FloorTex, ni, f.floorTex), layerTex(f, m.CeilTex, ni, f.ceilTex)
 	}
 	// Ran out of steps: the last cell's planes continue to the horizon.
 	h := min(max(f.rowOf(f.horizon), top), bot)
-	rc.drawPlane(f, x, top, h, curC-f.eye, curL, f.ceilTex, f.ceil, rdx, rdy, true)
-	rc.drawPlane(f, x, h, bot, f.eye-curF, curL, f.floorTex, f.flr, rdx, rdy, false)
+	rc.drawPlane(f, x, top, h, curC-f.eye, curL, curCT, f.ceil, rdx, rdy, true)
+	rc.drawPlane(f, x, h, bot, f.eye-curF, curL, curFT, f.flr, rdx, rdy, false)
+}
+
+// cellTex is the default texture of a wall cell type.
+func (f *frame) cellTex(cell MapCell) *Texture2D {
+	if int(cell) >= 0 && int(cell) < len(f.wallTex) {
+		return f.wallTex[cell]
+	}
+	return nil
 }
 
 // planeK darkens floors and ceilings a little against walls (0.85).
@@ -367,8 +405,8 @@ func (rc *Raycaster) drawPlane(f *frame, x, y0, y1 int, dh float64, L int32, tex
 		}
 		d := dh * f.rowK[y]
 		wx, wy := f.px+rdx*d, f.py+rdy*d
-		tx := int(wx*fw) & (tw - 1) // one repeat per cell (power-of-two wrap)
-		ty := int(wy*fh) & (th - 1)
+		tx := (int(wx*fw) + int(tex.OffU)) & (tw - 1) // one repeat per cell (power-of-two wrap)
+		ty := (int(wy*fh) + int(tex.OffV)) & (th - 1)
 		src := (ty*tw + tx) * 4
 		tp := tex.Pixels[src : src+3 : src+3]
 		if f.lit { // f.put, inlined by hand (hot loop)
@@ -393,24 +431,22 @@ func (rc *Raycaster) drawPlane(f *frame, x, y0, y1 int, dh float64, L int32, tex
 }
 
 // drawWall fills rows [y0, y1) of column x with a wall face at distance d
-// lit by cell light L. Textures are anchored to world height (one repeat per
-// unit, top of a classic 0..1 wall at v=0), so faces of different heights
-// line up.
-func (rc *Raycaster) drawWall(f *frame, x, y0, y1 int, d float64, L int32, cell MapCell, side int, wallX float64) {
+// lit by cell light L, texture tex (nil = the flat colour of cell). Textures
+// are anchored to world height (one repeat per unit, v=0 at height anchor:
+// 1 for ordinary faces, so faces of different heights line up; the moving
+// plane for pegged door/lift faces).
+func (rc *Raycaster) drawWall(f *frame, x, y0, y1 int, d float64, L int32, cell MapCell, tex *Texture2D, side int, wallX, anchor float64) {
 	k := int32(256)
 	if side == 1 {
 		k = 179 // 0.7: cheap directional light
 	}
-	var tex *Texture2D
-	if int(cell) >= 0 && int(cell) < len(f.wallTex) {
-		tex = f.wallTex[cell]
-	}
-	rc.drawWallTex(f, x, y0, y1, d, L, tex, cell, k, wallX)
+	rc.drawWallTex(f, x, y0, y1, d, L, tex, cell, k, wallX, anchor)
 }
 
 // drawWallTex draws a wall face with texture tex (nil = the flat colour of
-// cell) and directional factor k (256 = 1).
-func (rc *Raycaster) drawWallTex(f *frame, x, y0, y1 int, d float64, L int32, tex *Texture2D, cell MapCell, k int32, wallX float64) {
+// cell), directional factor k (256 = 1) and texture anchor height (see
+// drawWall).
+func (rc *Raycaster) drawWallTex(f *frame, x, y0, y1 int, d float64, L int32, tex *Texture2D, cell MapCell, k int32, wallX, anchor float64) {
 	sw := f.sw
 	pix := rc.pixels
 	s, fz := distShade(d)*k>>8, int32(0)
@@ -434,10 +470,10 @@ func (rc *Raycaster) drawWallTex(f *frame, x, y0, y1 int, d float64, L int32, te
 		return
 	}
 	texW, texH := int(tex.Width), int(tex.Height)
-	texX := int(wallX*float64(texW)) & (texW - 1)
+	texX := (int(wallX*float64(texW)) + int(tex.OffU)) & (texW - 1)
 	step := float64(texH) * d / f.focal
 	hTop := f.eye - (float64(y0)+0.5-f.horizon)*d/f.focal
-	texPos := (1-hTop)*float64(texH) + float64(texH)*4096 // keep positive
+	texPos := (anchor-hTop)*float64(texH) + float64(texH)*4096 + float64(tex.OffV) // keep positive
 	for y := y0; y < y1; y++ {
 		texY := int(texPos) & (texH - 1)
 		texPos += step
@@ -481,7 +517,7 @@ func (rc *Raycaster) spriteTexture(s *Sprite) *Texture2D {
 	if n := len(s.Rotations); n > 0 {
 		name = s.Rotations[RotationIndex(s.Angle, math.Atan2(rc.Player.Y-s.Y, rc.Player.X-s.X), n)]
 	}
-	return rc.TexManager.Get(name)
+	return rc.tex(name)
 }
 
 // RotationIndex selects one of n rotation frames for a thing facing angle

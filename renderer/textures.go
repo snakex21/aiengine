@@ -27,6 +27,10 @@ type Texture2D struct {
 	Width  int32
 	Height int32
 	Pixels []uint8 // raw RGBA pixel data for CPU sampling
+
+	// OffU/OffV shift sampling by whole texels (scrolling animations,
+	// texanim.go); 0 for ordinary textures.
+	OffU, OffV int32
 }
 
 // TextureManager owns all loaded/generated textures, keyed by name.
@@ -41,6 +45,10 @@ func NewTextureManager() *TextureManager {
 		textures: make(map[string]*Texture2D),
 	}
 }
+
+// Register adds a texture built on the CPU (no OpenGL upload; the software
+// renderer samples Pixels only). Used by generated sprite frames and tests.
+func (tm *TextureManager) Register(name string, t *Texture2D) { tm.textures[name] = t }
 
 // Get returns a texture by name, or nil if not found.
 func (tm *TextureManager) Get(name string) *Texture2D {

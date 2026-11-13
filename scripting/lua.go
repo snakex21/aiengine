@@ -203,6 +203,36 @@ func (lb *LuaBridge) registerAPI() {
 		return 0
 	}))
 
+	// Animated sectors: activate(tag), moveFloor(tag, h [, speed]),
+	// moveCeil(tag, h [, speed]), stopMover(tag), getFloor(tag), getCeil(tag).
+	L.SetGlobal("activate", L.NewFunction(func(L *lua.LState) int {
+		L.Push(lua.LBool(e.Activate(L.CheckString(1))))
+		return 1
+	}))
+	L.SetGlobal("moveFloor", L.NewFunction(func(L *lua.LState) int {
+		L.Push(lua.LBool(e.MoveFloor(L.CheckString(1), float64(L.CheckNumber(2)), float64(L.OptNumber(3, 0)))))
+		return 1
+	}))
+	L.SetGlobal("moveCeil", L.NewFunction(func(L *lua.LState) int {
+		L.Push(lua.LBool(e.MoveCeil(L.CheckString(1), float64(L.CheckNumber(2)), float64(L.OptNumber(3, 0)))))
+		return 1
+	}))
+	L.SetGlobal("stopMover", L.NewFunction(func(L *lua.LState) int {
+		L.Push(lua.LBool(e.StopMover(L.CheckString(1))))
+		return 1
+	}))
+	for name, plane := range map[string]string{"getFloor": "floor", "getCeil": "ceil"} {
+		plane := plane
+		L.SetGlobal(name, L.NewFunction(func(L *lua.LState) int {
+			if h, ok := e.MoverHeight(L.CheckString(1), plane); ok {
+				L.Push(lua.LNumber(h))
+			} else {
+				L.Push(lua.LNil)
+			}
+			return 1
+		}))
+	}
+
 	// --- Sound & Music API ---
 	L.SetGlobal("playSound", L.NewFunction(func(L *lua.LState) int {
 		e.PlaySound(L.CheckString(1))

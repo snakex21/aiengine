@@ -93,7 +93,7 @@ func (rc *Raycaster) prepareSectors(f *frame) {
 		}
 		t, ok := cache[name]
 		if !ok {
-			t = usableTex(rc.TexManager.Get(name))
+			t = usableTex(rc.tex(name))
 			cache[name] = t
 		}
 		return t, cell
@@ -242,7 +242,7 @@ func (rc *Raycaster) castSectorColumn(f *frame, x int) {
 		o := l.Other(s)
 		if o < 0 { // solid wall
 			if top < bot {
-				rc.drawWallTex(f, x, top, bot, d, L, sf.lineTex[bestLine], sf.lineCell[bestLine], k, wallX)
+				rc.drawWallTex(f, x, top, bot, d, L, sf.lineTex[bestLine], sf.lineCell[bestLine], k, wallX, 1)
 			}
 			rc.zBuffer[x] = d
 			clips = append(clips, clipEntry{d, int32(top), int32(top)})
@@ -251,13 +251,21 @@ func (rc *Raycaster) castSectorColumn(f *frame, x int) {
 		next := &m.Sectors[o]
 		if next.Ceil < sec.Ceil { // upper step face
 			if e := min(f.rowOf(f.rowAt(next.Ceil, d)), bot); e > top {
-				rc.drawWallTex(f, x, top, e, d, L, sf.stepTex[o], sf.stepCell[o], k, wallX)
+				a := 1.0
+				if next.Peg {
+					a = next.Ceil
+				}
+				rc.drawWallTex(f, x, top, e, d, L, sf.stepTex[o], sf.stepCell[o], k, wallX, a)
 				top = e
 			}
 		}
 		if next.Floor > sec.Floor { // lower step face
 			if b := max(f.rowOf(f.rowAt(next.Floor, d)), top); b < bot {
-				rc.drawWallTex(f, x, b, bot, d, L, sf.stepTex[o], sf.stepCell[o], k, wallX)
+				a := 1.0
+				if next.Peg {
+					a = next.Floor
+				}
+				rc.drawWallTex(f, x, b, bot, d, L, sf.stepTex[o], sf.stepCell[o], k, wallX, a)
 				bot = b
 			}
 		}

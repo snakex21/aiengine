@@ -46,7 +46,8 @@ var blockKeywords = map[string]bool{
 	"GENERATE": true, "ZONE": true,
 	"HP_PARTS": true, "HP_PHASES": true, "DAMAGE_PARTS": true,
 	"BEHAVIOR": true, "ANIM": true, "MAP_PROPS": true,
-	"PLACE":   true, "SECTOR": true,
+	"PLACE": true, "SECTOR": true, "MOVER": true, "TEXTURE_ANIM": true,
+	"TAG_GRID": true, "FLOOR_TEX_GRID": true, "CEILING_TEX_GRID": true, "WALL_TEX_GRID": true,
 	"TRIGGER": true, "CUTSCENE": true, "SOUND": true,
 }
 
@@ -511,8 +512,9 @@ func (n *AIENode) IsSound() bool {
 
 // gridBlocks hold one row of single-character cells per line: the map GRID
 // and the optional per-cell layers aligned with it (floor and ceiling
-// heights, light levels).
-var gridBlocks = map[string]bool{"GRID": true, "FLOOR_GRID": true, "CEILING_GRID": true, "LIGHT_GRID": true}
+// heights, light levels, mover tags, textures).
+var gridBlocks = map[string]bool{"GRID": true, "FLOOR_GRID": true, "CEILING_GRID": true, "LIGHT_GRID": true,
+	"TAG_GRID": true, "FLOOR_TEX_GRID": true, "CEILING_TEX_GRID": true, "WALL_TEX_GRID": true}
 
 // IsGridBlock reports whether a block type collects grid rows.
 func IsGridBlock(typ string) bool { return gridBlocks[strings.ToUpper(typ)] }
