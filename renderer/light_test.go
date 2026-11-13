@@ -160,3 +160,18 @@ func benchLit(b *testing.B, w, h int) {
 func BenchmarkRenderLit1080p(b *testing.B) { benchLit(b, 1920, 1080) }
 func BenchmarkRenderLit1440p(b *testing.B) { benchLit(b, 2560, 1440) }
 func BenchmarkRenderLit2160p(b *testing.B) { benchLit(b, 3840, 2160) }
+
+// A sprite right in front of the camera covering most of the screen.
+func BenchmarkRenderBigSprite1080p(b *testing.B) {
+	rc := testRaycaster(1920, 1080)
+	rc.FloorTexture = "floor_t"
+	big := &Texture2D{Width: 256, Height: 256, Pixels: make([]uint8, 256*256*4)}
+	for i := 3; i < len(big.Pixels); i += 4 {
+		big.Pixels[i-3], big.Pixels[i] = 200, 255
+	}
+	rc.TexManager.textures["big"] = big
+	s := &Sprite{X: 4.2, Y: 3.7, Scale: 0.9, TexName: "big", Alpha: 1, Active: true}
+	for i := 0; i < b.N; i++ {
+		rc.renderToBuffer([]*Sprite{s})
+	}
+}

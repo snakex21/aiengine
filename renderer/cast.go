@@ -548,6 +548,10 @@ func (rc *Raycaster) drawSpriteColumns(f *frame, it *spriteItem, lo, hi int) {
 	yb := f.rowOf(it.yTop + it.size)
 	pix := rc.pixels
 	tp := it.tex.Pixels
+	// Texture rows step in 16.16 fixed point down each column.
+	vStep := int64(float64(th) / it.size * 65536)
+	s, keep := it.shade, 256-it.fog
+	fogR, fogG, fogB := f.fogC[0]*it.fog, f.fogC[1]*it.fog, f.fogC[2]*it.fog
 	for x := xa; x < xb; x++ {
 		// Window left open by everything nearer than the sprite.
 		top, bot := int32(0), int32(f.sh)
@@ -563,25 +567,30 @@ func (rc *Raycaster) drawSpriteColumns(f *frame, it *spriteItem, lo, hi int) {
 		}
 		tx := int((float64(x) + 0.5 - it.x0) / it.size * float64(tw))
 		tx = min(max(tx, 0), tw-1)
-		for y := y0; y < y1; y++ {
-			ty := int((float64(y) + 0.5 - it.yTop) / it.size * float64(th))
-			ty = min(max(ty, 0), th-1)
+		v := int64((float64(y0) + 0.5 - it.yTop) / it.size * float64(th) * 65536)
+		for y := y0; y < y1; y, v = y+1, v+vStep {
+			ty := min(max(int(v>>16), 0), th-1)
 			src := (ty*tw + tx) * 4
 			a := int32(tp[src+3]) * it.alpha >> 8
 			if a < 1 {
 				continue
 			}
+			r := int32(tp[src]) * s >> 8
+			g := int32(tp[src+1]) * s >> 8
+			b := int32(tp[src+2]) * s >> 8
+			if it.fog > 0 {
+				r, g, b = (r*keep+fogR)>>8, (g*keep+fogG)>>8, (b*keep+fogB)>>8
+			}
+			r, g, b = min(r, 255), min(g, 255), min(b, 255)
 			i := (y*f.sw + x) * 4
-			var c [4]uint8
-			f.put(c[:], int32(tp[src]), int32(tp[src+1]), int32(tp[src+2]), it.shade, it.fog)
+			dst := pix[i : i+3 : i+3]
 			if a >= 255 {
-				pix[i], pix[i+1], pix[i+2] = c[0], c[1], c[2]
+				dst[0], dst[1], dst[2] = uint8(r), uint8(g), uint8(b)
 				continue
 			}
-			r, g, b := int32(c[0]), int32(c[1]), int32(c[2])
-			pix[i] = uint8((r*a + int32(pix[i])*(255-a)) / 255)
-			pix[i+1] = uint8((g*a + int32(pix[i+1])*(255-a)) / 255)
-			pix[i+2] = uint8((b*a + int32(pix[i+2])*(255-a)) / 255)
+			dst[0] = uint8((r*a + int32(dst[0])*(255-a)) / 255)
+			dst[1] = uint8((g*a + int32(dst[1])*(255-a)) / 255)
+			dst[2] = uint8((b*a + int32(dst[2])*(255-a)) / 255)
 		}
 	}
 }

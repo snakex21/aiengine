@@ -60,6 +60,37 @@ Sprite'y stoją na podłodze swojej komórki (`PLACE ... y` to wysokość nad
 nią). Strzał wymaga czystej linii 3D (nie przez krawędź półki).
 
 Przykład: `maps/testy/wysokosci.aie` (z konsoli: `map maps/testy/wysokosci.aie`).
+
+### Oświetlenie (opcjonalne)
+
+Światło jest liczone na komórkę (jak światło sektora w klasycznych silnikach
+2.5D): ściany i ścianki stopni biorą światło komórki przed nimi, podłoga,
+sufit i sprite'y - komórki, w której są. Na to nakłada się zaciemnienie
+z odległością i mgła. Mapy bez tych linii wyglądają jak dawniej.
+
+```
+LIGHT_AMBIENT 0.35                    # domyślne światło komórki (1 = pełne)
+FOG yes color=#06050A density=0.12    # mgła: udział 1-exp(-density*odległość)
+LIGHT_GRID                            # jeden znak na komórkę GRID
+. 6 7 9 9 .                           # . = LIGHT_AMBIENT, 0-9 = 0..1 (n/9)
+
+PLACE light flicker pochodnia 1.5 0.7 7.5 radius=3.5 level=1.1 speed=9 min=0.3
+PLACE light pulse otchlan 14.5 0 3.5 radius=3 level=0.9 speed=0.5 min=0.1
+PLACE light strobe alarm 15.5 0 8.5 radius=1.5 level=1 speed=2 min=0
+LIGHT_POINT 5.0 1.0 3.0 radius=4.0    # stałe światło (starsza składnia)
+PLACE item crystal k1 5.5 0 1.5 glow=0.6 glow_radius=2.5   # świecący przedmiot
+```
+
+Światło dodaje `level * (1 - odległość/radius)` komórkom, które widzi (nie
+przechodzi przez ściany). Efekty: `steady`, `flicker` (losowe przygaśnięcia
+do `min`), `pulse` (płynnie między `min` a 1), `strobe` (wł./wył.), `off`;
+`speed` = zmiany na sekundę. Strzał rozjaśnia na chwilę otoczenie gracza.
+Przedmiot z `glow=` świeci, dopóki nie zostanie podniesiony.
+
+Skrypty (Lua, w JS jako `engine.*`): `setLight(id, poziom)`,
+`setLightEffect(id, "flicker"|"pulse"|"strobe"|"steady"|"off")`,
+`setCellLight(x, y, poziom)` (np. własne pulsowanie w `onUpdate`).
+Przykład: `maps/testy/swiatlo.aie`.
 Edytor zachowuje bloki `FLOOR_GRID`/`CEILING_GRID` przy zapisie (malowanie
 wysokości w edytorze jeszcze nie istnieje).
 

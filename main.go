@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/pprof"
 	"sort"
 	"strconv"
 	"strings"
@@ -116,6 +117,7 @@ type runOptions struct {
 	screenshot string // --screenshot <file.png>: save a frame, then quit
 	frames     int    // --frames N: frame to capture / quit after (0 = run)
 	exec       string // --exec "cmd; cmd": console commands after start
+	cpuprofile string // --cpuprofile <file>: Go CPU profile of the whole run
 }
 
 // parseRunOptions parses launch flags. Unknown flags are an error.
@@ -138,6 +140,9 @@ func parseRunOptions(args []string) (runOptions, error) {
 			i++
 		case "--exec":
 			o.exec, err = need(i, args[i])
+			i++
+		case "--cpuprofile":
+			o.cpuprofile, err = need(i, args[i])
 			i++
 		case "--frames":
 			var v string
@@ -225,6 +230,7 @@ func main() {
 			fmt.Println("  --screenshot <file.png> [--frames N]  save frame N (default 60) and quit")
 			fmt.Println("  --frames N              quit after N frames (smoke test)")
 			fmt.Println("  --exec \"cmd; cmd\"       console commands after start, e.g. \"god; tp 3 4\"")
+			fmt.Println("  --cpuprofile <file>     write a Go CPU profile of the run (go tool pprof)")
 			return
 		}
 	}
@@ -247,6 +253,13 @@ func main() {
 		log.Fatalf("AIEngine initialization failed: %v", err)
 	}
 	defer app.shutdown()
+	if opts.cpuprofile != "" {
+		if f, err := os.Create(opts.cpuprofile); err == nil {
+			if err := pprof.StartCPUProfile(f); err == nil {
+				defer pprof.StopCPUProfile()
+			}
+		}
+	}
 
 	app.run()
 }
