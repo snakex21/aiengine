@@ -1,0 +1,84 @@
+# maps/testy/animacje.aie — pokaz animacji (z konsoli: map maps/testy/animacje.aie)
+# Przesuwane drzwi, winda na półkę, zgniatacz, animowana woda i lawa,
+# strażnicy obróceni w różne strony (8 kątów widzenia).
+
+MAP animacje
+PLAYER_ANGLE 0
+PLAYER_HP 100
+FLOOR_COLOR #1E1A24
+CEILING_COLOR #0C0B14
+HEIGHT_STEP 0.125
+CEILING_HEIGHT 2
+DOOR_STYLE slide
+LIGHT_AMBIENT 0.75
+TAGS w=winda c=zgniatacz
+TEX_SYMBOLS w=woda l=lawa
+
+GRID
+W W W W W W W W W W W W W W W W
+W P . . . W . . . . . . . . . W
+W . . . . D . . . . . . . . . W
+W . . . . W . . . . . . . . . W
+W W . W W W W W W . W W W W W W
+W . . . . . . . . . . . . . . W
+W . . . . . . . . . . . . . . W
+W . . . . . . . . . . . . . . W
+W . . . . . . . . . . . . . . W
+W . . . . . . . . . . . . . . W
+W . . . . . . . . . . . . . . W
+W W W W W W W W W W W W W W W W
+
+FLOOR_GRID
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . 8 8 .
+. . . . . . . . . . . . 8 8 8 .
+. . . . . . . . . . . . . 8 8 .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. a a a . . . . . . . . a a a .
+. a a a . . . . . . . . a a a .
+. a a a . . . . . . . . a a a .
+. . . . . . . . . . . . . . . .
+
+TAG_GRID
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . w . . .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. . . . . c c . . . . . . . . .
+. . . . . c c . . . . . . . . .
+. . . . . . . . . . . . . . . .
+
+FLOOR_TEX_GRID
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. w w w . . . . . . . . l l l .
+. w w w . . . . . . . . l l l .
+. w w w . . . . . . . . l l l .
+. . . . . . . . . . . . . . . .
+
+MOVER lift winda speed=0.6 wait=2
+MOVER crusher zgniatacz start=on speed=1.2 wait=0.5 damage=12
+PLACE switch dzwignia d1 4.6 0.35 9.5 tag=zgniatacz action=stop scale=0.4
+PLACE light steady lawa_blask 13.5 0 9.5 radius=3 level=0.6
+PLACE light flicker pochodnia 2.5 0.8 1.5 radius=3 level=0.5 speed=8 min=0.3
+
+PLACE enemy_type straznik 0 0 0 hp=50 speed=0.9 damage=10 sight=1 behavior=ambush
+PLACE enemy straznik o1 2.5 0 6 angle=90
+PLACE enemy straznik o2 5 0 6 angle=45
+PLACE enemy straznik o3 7.5 0 6 angle=0
+PLACE enemy straznik o4 10 0 6 angle=-45
+PLACE enemy straznik o5 12.5 0 6 angle=-90

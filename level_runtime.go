@@ -251,6 +251,9 @@ func (app *App) spawnLevelEnemy(p level.Placement) {
 	enemy.Anim = anim.NewPlayer(app.enemyAnimSet(atlasPath, prefix))
 	enemy.Anim.T = float64(len(app.enemies)) * 0.37 // out of step with each other
 	sprite.Angle = math.Atan2(app.player.Y-p.Y, app.player.X-p.X)
+	if _, ok := p.Params["angle"]; ok { // initial facing in degrees (0 = +x, 90 = +z)
+		sprite.Angle = p.Float("angle", 0) * math.Pi / 180
+	}
 	sprite.TexName, sprite.Rotations = enemy.Anim.Textures()
 	app.enemies = append(app.enemies, enemy)
 	app.sprites = append(app.sprites, sprite)

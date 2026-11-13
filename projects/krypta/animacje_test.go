@@ -100,3 +100,13 @@ func TestAnimatedWaterAndLava(t *testing.T) {
 		}
 	}
 }
+
+func TestAnimationShowcaseMapLoads(t *testing.T) {
+	lv, err := level.LoadFile("maps/testy/animacje.aie")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lv.Movers()) != 3 || len(lv.ByKind("enemy")) != 5 || len(lv.ByKind("switch")) != 1 {
+		t.Fatalf("movers %d enemies %d", len(lv.Movers()), len(lv.ByKind("enemy")))
+	}
+}
