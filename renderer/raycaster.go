@@ -6,6 +6,7 @@
 package renderer
 
 import (
+	"image"
 	"image/color"
 	"log"
 	"math"
@@ -259,6 +260,18 @@ type Raycaster struct {
 	HUDMaxHP   int
 	HUDAmmo    int
 	HUDAmmoMax int
+
+	// Scripted HUD text: lines drawn top-left, a centred message, and a
+	// full-screen overlay (end screen) that hides sprites and the weapon.
+	HUDLines        []string
+	HUDMessage      string
+	OverlayTitle    string
+	OverlaySubtitle string
+	OverlayColor    [4]uint8
+
+	// Floor/ceiling fill colours (defaults set by NewRaycaster).
+	CeilColor  color.RGBA
+	FloorColor color.RGBA
 }
 
 func NewRaycaster(m *MapData, p *PlayerState, tm *TextureManager) *Raycaster {
@@ -267,6 +280,8 @@ func NewRaycaster(m *MapData, p *PlayerState, tm *TextureManager) *Raycaster {
 		Player:     p,
 		TexManager: tm,
 		effects:    DefaultEffects(),
+		CeilColor:  ceilColor,
+		FloorColor: floorColor,
 	}
 }
 
@@ -389,9 +404,12 @@ func (rc *Raycaster) Render(sprites []*Sprite) {
 	gl.DrawArrays(gl.TRIANGLES, 0, 6)
 	gl.BindVertexArray(0)
 
-	// 4. Draw sprites as GPU overlay (using Z-buffer from DDA).
-	rc.drawSprites(sprites)
-	rc.DrawHUDWeapon()
+	// 4. Draw sprites as GPU overlay (using Z-buffer from DDA). The end-screen
+	// overlay lives in the CPU buffer, so sprites would cover it: skip them.
+	if rc.OverlayTitle == "" {
+		rc.drawSprites(sprites)
+		rc.DrawHUDWeapon()
+	}
 	gl.Enable(gl.DEPTH_TEST)
 
 	checkGLError("Render end")
@@ -406,8 +424,8 @@ func (rc *Raycaster) renderToBuffer(sprites []*Sprite) {
 
 	// Fill ceiling and floor. The horizon line shifts with pitch (look up/down)
 	// so the floor/ceiling split tracks the camera's vertical aim.
-	ceil := colorToRGBA(ceilColor)
-	flr := colorToRGBA(floorColor)
+	ceil := colorToRGBA(rc.CeilColor)
+	flr := colorToRGBA(rc.FloorColor)
 
 	horizon := sh/2 + int(rc.Player.Pitch*fsh)
 	if horizon < 0 {
@@ -613,8 +631,13 @@ func (rc *Raycaster) renderToBuffer(sprites []*Sprite) {
 		}
 	}
 
+	// Screen-space colour effects (red tint, desaturate, brightness,
+	// vignette) on the world image, before HUD text is drawn.
+	rc.applyScreenEffects(sw, sh)
+
 	// Draw HUD overlay.
 	rc.drawHUD(sw, sh)
+	rc.drawHUDText(sw, sh)
 
 	// Draw console overlay on top of everything.
 	if rc.ConsoleOpen {
@@ -694,7 +717,10 @@ func (rc *Raycaster) drawHUD(sw, sh int) {
 		}
 	}
 
-	// Ammo counter.
+	// Ammo counter (hidden when the game has no ammo).
+	if rc.HUDAmmoMax <= 0 {
+		return
+	}
 	ammoX, ammoY, ammoW, ammoH := sw-140, sh-30, 130, 12
 	for y := ammoY - 1; y <= ammoY+ammoH; y++ {
 		for x := ammoX - 1; x <= ammoX+ammoW; x++ {
@@ -727,6 +753,148 @@ func (rc *Raycaster) drawHUD(sw, sh int) {
 			}
 		}
 	}
+}
+
+// drawHUDText draws script HUD lines, the centred message and the overlay.
+func (rc *Raycaster) drawHUDText(sw, sh int) {
+	white := [4]uint8{235, 235, 235, 255}
+	scale := 2
+	if sh >= 900 {
+		scale = 3
+	}
+	for i, line := range rc.HUDLines {
+		DrawTextScaled(rc.pixels, sw, sh, 12, 12+i*(FontH*scale+4), line, white, scale)
+	}
+
+	if rc.OverlayTitle != "" {
+		for i := 0; i < len(rc.pixels); i += 4 {
+			rc.pixels[i] /= 3
+			rc.pixels[i+1] /= 3
+			rc.pixels[i+2] /= 3
+		}
+		col := rc.OverlayColor
+		if col[3] == 0 {
+			col = [4]uint8{255, 220, 90, 255}
+		}
+		big := scale * 3
+		DrawTextScaled(rc.pixels, sw, sh, (sw-TextWidth(rc.OverlayTitle, big))/2, sh/3, rc.OverlayTitle, col, big)
+		y := sh/3 + FontH*big + 24
+		for _, line := range splitLines(rc.OverlaySubtitle) {
+			DrawTextScaled(rc.pixels, sw, sh, (sw-TextWidth(line, scale))/2, y, line, white, scale)
+			y += FontH*scale + 8
+		}
+		return
+	}
+
+	if rc.HUDMessage != "" {
+		ms := scale + 1
+		yellow := [4]uint8{255, 230, 120, 255}
+		y := sh / 4
+		for _, line := range splitLines(rc.HUDMessage) {
+			DrawTextScaled(rc.pixels, sw, sh, (sw-TextWidth(line, ms))/2, y, line, yellow, ms)
+			y += FontH*ms + 6
+		}
+	}
+}
+
+func splitLines(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var out []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			out = append(out, s[start:i])
+			start = i + 1
+		}
+	}
+	return append(out, s[start:])
+}
+
+// applyScreenEffects applies the colour parts of EffectsConfig to the CPU
+// buffer. Neutral settings cost nothing. (Blur, grain and chromatic
+// aberration are not implemented yet.)
+func (rc *Raycaster) applyScreenEffects(sw, sh int) {
+	fx := rc.effects
+	if fx == nil {
+		return
+	}
+	red := clamp01(fx.RedTint)
+	desat := clamp01(fx.Desaturate)
+	vig := clamp01(fx.Vignette)
+	bright := fx.Brightness
+	if bright <= 0 {
+		bright = 1
+	}
+	if red == 0 && desat == 0 && vig == 0 && bright == 1 {
+		return
+	}
+	cx, cy := float64(sw)/2, float64(sh)/2
+	maxD2 := cx*cx + cy*cy
+	for y := 0; y < sh; y++ {
+		dy := float64(y) - cy
+		for x := 0; x < sw; x++ {
+			i := (y*sw + x) * 4
+			r, g, b := float64(rc.pixels[i]), float64(rc.pixels[i+1]), float64(rc.pixels[i+2])
+			if desat > 0 {
+				l := 0.299*r + 0.587*g + 0.114*b
+				r += (l - r) * desat
+				g += (l - g) * desat
+				b += (l - b) * desat
+			}
+			if red > 0 {
+				r += (255 - r) * red * 0.6
+				g *= 1 - red*0.5
+				b *= 1 - red*0.5
+			}
+			k := bright
+			if vig > 0 {
+				dx := float64(x) - cx
+				k *= 1 - vig*(dx*dx+dy*dy)/maxD2
+			}
+			rc.pixels[i] = clampByte(r * k)
+			rc.pixels[i+1] = clampByte(g * k)
+			rc.pixels[i+2] = clampByte(b * k)
+		}
+	}
+}
+
+func clamp01(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
+}
+
+func clampByte(v float64) uint8 {
+	if v <= 0 {
+		return 0
+	}
+	if v >= 255 {
+		return 255
+	}
+	return uint8(v)
+}
+
+// ReadScreen reads the current framebuffer (call after Render, before swap)
+// into a top-down RGBA image.
+func (rc *Raycaster) ReadScreen() *image.RGBA {
+	w, h := int(rc.screenW), int(rc.screenH)
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	buf := make([]uint8, w*h*4)
+	gl.PixelStorei(gl.PACK_ALIGNMENT, 1)
+	gl.ReadPixels(0, 0, rc.screenW, rc.screenH, gl.RGBA, gl.UNSIGNED_BYTE, gl.Ptr(buf))
+	for y := 0; y < h; y++ { // OpenGL rows are bottom-up
+		copy(img.Pix[y*w*4:(y+1)*w*4], buf[(h-1-y)*w*4:(h-y)*w*4])
+	}
+	for i := 3; i < len(img.Pix); i += 4 {
+		img.Pix[i] = 255
+	}
+	return img
 }
 
 // drawConsole renders the cheat console overlay on the pixel buffer.
