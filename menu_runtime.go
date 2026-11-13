@@ -91,6 +91,9 @@ func (app *App) openMenu(name string) {
 	m.OpenRoot(name)
 	app.onMenuScreenChanged()
 	app.window.SetInputMode(glfw.CursorMode, glfw.CursorNormal)
+	// Hover only reacts to real mouse movement from here on, so a cursor that
+	// happens to rest over an item (e.g. after Alt+Tab) does not move focus.
+	app.prevMouseX, app.prevMouseY = app.window.GetCursorPos()
 	app.scriptEngine.Emit("onPause", true)
 }
 
@@ -240,7 +243,7 @@ func (app *App) applySettings() {
 		return
 	}
 	s := app.ms.settings
-	app.audioSys.SetVolumes(s.MasterVolume, s.MusicVolume, s.SfxVolume)
+	app.applyAudio()
 	if app.player != nil {
 		app.player.FOV = s.FOV * math.Pi / 180
 	}
@@ -253,31 +256,113 @@ func (app *App) applyVideo() {
 	monitor := glfw.GetPrimaryMonitor()
 	mode := monitor.GetVideoMode()
 	outW, outH := s.Output(mode.Width, mode.Height)
-	if s.Fullscreen {
-		outW, outH = mode.Width, mode.Height // fullscreen always uses the monitor mode
-		if !s.Native() {
-			outW, outH = s.Width, s.Height // ...but renders the chosen size, stretched
-		}
+	if s.Fullscreen && s.Native() {
+		outW, outH = mode.Width, mode.Height
 	}
 	rw, rh := s.RenderSize(outW, outH)
 	app.raycaster.Resize(int32(rw), int32(rh))
 	switch {
-	case s.Fullscreen && !app.fullscreen:
-		app.windowedX, app.windowedY = app.window.GetPos()
-		app.window.SetMonitor(monitor, 0, 0, mode.Width, mode.Height, mode.RefreshRate)
-		app.fullscreen = true
-	case !s.Fullscreen && app.fullscreen:
-		app.window.SetMonitor(nil, app.windowedX, app.windowedY, outW, outH, 0)
-		app.fullscreen = false
 	case !s.Fullscreen:
-		if w, h := app.window.GetSize(); w != outW || h != outH {
-			app.window.SetSize(outW, outH)
-			app.window.SetPos(max(0, (mode.Width-outW)/2), max(0, (mode.Height-outH)/2))
-		}
+		app.setWindowMode(windowed, outW, outH)
+	case s.Exclusive:
+		app.setWindowMode(exclusiveFullscreen, 0, 0)
+	default:
+		app.setWindowMode(borderlessFullscreen, 0, 0)
 	}
-	log.Printf("Video: output %dx%d fullscreen=%v, render %dx%d (%.0f%%), monitor %dx%d",
-		outW, outH, s.Fullscreen, rw, rh, s.RenderScale*100, mode.Width, mode.Height)
-	app.windowedW, app.windowedH = outW, outH
+	log.Printf("Video: output %dx%d fullscreen=%v exclusive=%v, render %dx%d (%.0f%%), monitor %dx%d",
+		outW, outH, s.Fullscreen, s.Exclusive, rw, rh, s.RenderScale*100, mode.Width, mode.Height)
+}
+
+type windowMode int
+
+const (
+	windowed windowMode = iota
+	borderlessFullscreen
+	exclusiveFullscreen
+)
+
+// setWindowMode switches between a decorated window, borderless fullscreen
+// (an undecorated window covering the monitor: no video-mode change, so
+// Alt+Tab and the Win key are instant) and exclusive fullscreen.
+func (app *App) setWindowMode(m windowMode, w, h int) {
+	monitor := glfw.GetPrimaryMonitor()
+	mode := monitor.GetVideoMode()
+	if app.winMode == windowed && m != windowed {
+		app.windowedX, app.windowedY = app.window.GetPos()
+	}
+	switch m {
+	case windowed:
+		app.window.SetAttrib(glfw.Decorated, glfw.True)
+		if w <= 0 || h <= 0 {
+			w, h = app.windowedW, app.windowedH
+		}
+		x, y := app.windowedX, app.windowedY
+		if app.winMode == windowed {
+			x, y = max(0, (mode.Width-w)/2), max(0, (mode.Height-h)/2)
+		}
+		app.window.SetMonitor(nil, x, y, w, h, 0)
+		app.windowedW, app.windowedH = w, h
+	case borderlessFullscreen:
+		mx, my := monitor.GetPos()
+		app.window.SetAttrib(glfw.Decorated, glfw.False)
+		app.window.SetMonitor(nil, mx, my, mode.Width, mode.Height, 0)
+	case exclusiveFullscreen:
+		app.window.SetMonitor(monitor, 0, 0, mode.Width, mode.Height, mode.RefreshRate)
+	}
+	app.winMode = m
+	app.fullscreen = m != windowed
+	app.mouseInit = false
+}
+
+// applyAudio sets volumes, scaled down while the window is unfocused.
+func (app *App) applyAudio() {
+	if !app.ms.settingsActive {
+		return
+	}
+	s := app.ms.settings
+	master := s.MasterVolume
+	if app.unfocused {
+		master *= s.BackgroundVolume
+	}
+	app.audioSys.SetVolumes(master, s.MusicVolume, s.SfxVolume)
+}
+
+// focusCallback pauses the game and frees the mouse when the window loses
+// focus (Alt+Tab, Win key, clicking elsewhere) and lowers audio per settings.
+// The cursor is captured again only after the player clicks (or resumes from
+// the pause menu).
+func (app *App) focusCallback(w *glfw.Window, focused bool) {
+	if app.opts.frames > 0 { // automated runs (screenshots) never auto-pause
+		return
+	}
+	app.onFocusChange(focused)
+}
+
+// onFocusChange applies focus loss/gain (also reachable from the console:
+// "focus off|on").
+func (app *App) onFocusChange(focused bool) {
+	app.unfocused = !focused
+	app.applyAudio()
+	app.mouseInit = false
+	log.Printf("[Window] focus %v", focused)
+	if focused {
+		// The click that brings the window back must not press a menu item.
+		app.swallowClick = true
+		return
+	}
+	app.window.SetInputMode(glfw.CursorMode, glfw.CursorNormal)
+	if app.menuActive() || app.levelEnded() {
+		return
+	}
+	if app.ms.menu != nil && app.ms.menu.Def.Screens["pause"] != nil {
+		app.openMenu("pause")
+		return
+	}
+	if !app.paused {
+		app.paused = true
+		app.focusPaused = true
+		app.scriptEngine.Emit("onPause", true)
+	}
 }
 
 // menuKey maps a key press to a menu input.

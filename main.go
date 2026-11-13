@@ -84,6 +84,10 @@ type App struct {
 
 	// Level runtime (manifest RUNTIME level); nil for the legacy demo.
 	game             *levelGame
+	winMode          windowMode
+	unfocused        bool
+	focusPaused      bool // legacy pause caused by focus loss; a click resumes
+	swallowClick     bool // ignore the first click after the window regains focus
 	restartRequested bool
 	enterWasDown     bool
 
@@ -540,6 +544,7 @@ func (app *App) init() error {
 	window.SetCharCallback(app.charCallback)
 	window.SetMouseButtonCallback(app.mouseButtonCallback)
 	window.SetSizeCallback(app.sizeCallback)
+	window.SetFocusCallback(app.focusCallback)
 	window.SetCloseCallback(func(w *glfw.Window) {
 		w.SetShouldClose(true)
 	})
@@ -704,6 +709,14 @@ func (app *App) spawnDemoEnemies() {
 // run executes the main game loop.
 func (app *App) run() {
 	for !app.window.ShouldClose() {
+		// Minimised: nothing to draw; sleep until restored (the framebuffer
+		// is 0x0, and a huge dt on restore is avoided).
+		if app.window.GetAttrib(glfw.Iconified) == glfw.True {
+			glfw.WaitEventsTimeout(0.1)
+			app.lastFrameTime = time.Now()
+			app.mouseInit = false
+			continue
+		}
 		app.calculateDeltaTime()
 		app.trackFPS(app.deltaTime)
 
@@ -811,20 +824,14 @@ func (app *App) toggleFullscreen() {
 		app.saveSettings()
 		return
 	}
+	// No settings (legacy projects): toggle borderless fullscreen.
 	if app.fullscreen {
-		app.window.SetMonitor(nil, app.windowedX, app.windowedY, app.windowedW, app.windowedH, 0)
-		gl.Viewport(0, 0, int32(app.windowedW), int32(app.windowedH))
-		app.fullscreen = false
-		log.Printf("Switched to windowed mode (%dx%d)", app.windowedW, app.windowedH)
+		app.setWindowMode(windowed, app.windowedW, app.windowedH)
 	} else {
-		app.windowedX, app.windowedY = app.window.GetPos()
 		app.windowedW, app.windowedH = app.window.GetSize()
-		monitor := glfw.GetPrimaryMonitor()
-		mode := monitor.GetVideoMode()
-		app.window.SetMonitor(monitor, 0, 0, mode.Width, mode.Height, mode.RefreshRate)
-		app.fullscreen = true
-		log.Printf("Switched to fullscreen (%dx%d)", mode.Width, mode.Height)
+		app.setWindowMode(borderlessFullscreen, 0, 0)
 	}
+	log.Printf("Fullscreen: %v", app.fullscreen)
 }
 
 // update handles per-frame game logic: player movement, sprite updates.
@@ -1248,6 +1255,13 @@ func (app *App) shutdown() {
 // --- GLFW Callbacks ---
 
 func (app *App) keyCallback(w *glfw.Window, key glfw.Key, scancode int, action glfw.Action, mods glfw.ModifierKey) {
+	// Alt+Enter toggles fullscreen everywhere; F11 also inside menus (in
+	// gameplay F11 comes through the "fullscreen" binding).
+	if action == glfw.Press && ((key == glfw.KeyEnter || key == glfw.KeyKPEnter) && mods&glfw.ModAlt != 0 ||
+		key == glfw.KeyF11 && app.menuActive()) {
+		app.toggleFullscreen()
+		return
+	}
 	// Console takes all input when open.
 	if app.console != nil && app.console.Open {
 		if action == glfw.Press || action == glfw.Repeat {
@@ -1285,7 +1299,22 @@ func (app *App) keyCallback(w *glfw.Window, key glfw.Key, scancode int, action g
 }
 
 func (app *App) mouseButtonCallback(w *glfw.Window, button glfw.MouseButton, action glfw.Action, mods glfw.ModifierKey) {
+	// After a focus-loss pause (no pause menu): a click resumes and
+	// re-captures the cursor; the click itself is not passed to the game.
+	if action == glfw.Press && !app.menuActive() {
+		app.swallowClick = false
+	}
+	if app.focusPaused && action == glfw.Press {
+		app.focusPaused, app.paused, app.mouseInit = false, false, false
+		w.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
+		app.scriptEngine.Emit("onPause", false)
+		return
+	}
 	if app.menuActive() && action == glfw.Press {
+		if app.swallowClick {
+			app.swallowClick = false
+			return
+		}
 		x, y := w.GetCursorPos()
 		app.ms.clicks = append(app.ms.clicks, menuClick{x: x, y: y, right: button == glfw.MouseButtonRight})
 		return
@@ -1457,6 +1486,10 @@ func (app *App) consoleCommand(cmd string, args []string) string {
 			app.ms.inputs = append(app.ms.inputs, in)
 		}
 		return fmt.Sprintf("queued %d menu input(s)", len(args))
+
+	case "focus":
+		app.onFocusChange(systems.ArgString(args, 0) != "off")
+		return "focus " + systems.ArgString(args, 0)
 
 	case "fullscreen":
 		app.toggleFullscreen()

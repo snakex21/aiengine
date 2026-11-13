@@ -12,6 +12,8 @@
 //	RESOLUTION 1280x720      (or "native" = the monitor's size)
 //	RENDER_SCALE 100         (percent of the resolution actually rendered)
 //	FULLSCREEN no
+//	FULLSCREEN_MODE borderless (or exclusive: changes the monitor's video mode)
+//	BACKGROUND_VOLUME 0        (percent of volume while the window is unfocused)
 //	FOV 66
 package settings
 
@@ -45,6 +47,8 @@ type Settings struct {
 	Width, Height    int     // 0x0 = native monitor size
 	RenderScale      float64 // 0.5..2
 	Fullscreen       bool
+	Exclusive        bool    // exclusive fullscreen (mode switch) instead of borderless
+	BackgroundVolume float64 // volume factor while unfocused (0 = mute)
 	FOV              float64 // degrees, 50..110
 }
 
@@ -64,6 +68,7 @@ func (s *Settings) Clamp() {
 	s.SfxVolume = clamp(s.SfxVolume, 0, 1)
 	s.FOV = clamp(s.FOV, 50, 110)
 	s.RenderScale = clamp(s.RenderScale, 0.5, 2)
+	s.BackgroundVolume = clamp(s.BackgroundVolume, 0, 1)
 	if s.Native() {
 		return
 	}
@@ -71,6 +76,9 @@ func (s *Settings) Clamp() {
 		s.Width, s.Height = 1280, 720
 	}
 }
+
+// BackgroundVolumes are the menu choices for BackgroundVolume.
+var BackgroundVolumes = []float64{0, 0.3, 1}
 
 // Native reports whether the resolution follows the monitor.
 func (s Settings) Native() bool { return s.Width == 0 && s.Height == 0 }
@@ -155,6 +163,12 @@ func Load(path string, def Settings) (Settings, error) {
 			}
 		case "FULLSCREEN":
 			s.Fullscreen = parseBool(val)
+		case "FULLSCREEN_MODE":
+			s.Exclusive = strings.EqualFold(val, "exclusive")
+		case "BACKGROUND_VOLUME":
+			if numErr == nil {
+				s.BackgroundVolume = num / 100
+			}
 		case "FOV":
 			if numErr == nil {
 				s.FOV = num
@@ -197,6 +211,12 @@ func (s Settings) Save(path string) error {
 	}
 	fmt.Fprintf(&b, "RENDER_SCALE %.0f\n", s.RenderScale*100)
 	fmt.Fprintf(&b, "FULLSCREEN %s\n", yesNo(s.Fullscreen))
+	mode := "borderless"
+	if s.Exclusive {
+		mode = "exclusive"
+	}
+	fmt.Fprintf(&b, "FULLSCREEN_MODE %s\n", mode)
+	fmt.Fprintf(&b, "BACKGROUND_VOLUME %.0f\n", s.BackgroundVolume*100)
 	fmt.Fprintf(&b, "FOV %.0f\n", s.FOV)
 	tmp := path + ".tmp"
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

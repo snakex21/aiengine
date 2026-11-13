@@ -29,7 +29,8 @@ const (
 // Settings rows generated for the "settings" screen, in display order.
 var settingsRows = []string{
 	"mouse_sensitivity", "invert_y", "master_volume", "music_volume",
-	"sfx_volume", "resolution", "render_scale", "fullscreen", "fov",
+	"sfx_volume", "background_volume", "resolution", "render_scale", "fullscreen",
+	"fullscreen_mode", "fov",
 }
 
 // Default (English) labels for generated rows; menu files override them
@@ -44,6 +45,10 @@ var defaultLabels = map[string]string{
 	"render_scale":      "Render scale",
 	"native":            "Native",
 	"fullscreen":        "Fullscreen",
+	"fullscreen_mode":   "Fullscreen mode",
+	"borderless":        "Borderless",
+	"exclusive":         "Exclusive",
+	"background_volume": "Volume in background",
 	"fov":               "Field of view",
 	"back":              "Back",
 	"on":                "On",
@@ -304,6 +309,17 @@ func (m *Menu) adjust(key string, step int) bool {
 		s.SfxVolume = round1(s.SfxVolume + 0.1*f)
 	case "fullscreen":
 		s.Fullscreen = !s.Fullscreen
+	case "fullscreen_mode":
+		s.Exclusive = !s.Exclusive
+	case "background_volume":
+		idx := 0
+		for i, v := range settings.BackgroundVolumes {
+			if v <= s.BackgroundVolume+1e-9 {
+				idx = i
+			}
+		}
+		n := len(settings.BackgroundVolumes)
+		s.BackgroundVolume = settings.BackgroundVolumes[((idx+step)%n+n)%n]
 	case "fov":
 		s.FOV += 5 * f
 	case "render_scale":
@@ -372,6 +388,13 @@ func (m *Menu) ValueText(key string) string {
 		return fmt.Sprintf("%.0f%%", s.RenderScale*100)
 	case "fullscreen":
 		return onOff(s.Fullscreen)
+	case "fullscreen_mode":
+		if s.Exclusive {
+			return m.label(m.Def.Screens[scr.Name], "exclusive")
+		}
+		return m.label(m.Def.Screens[scr.Name], "borderless")
+	case "background_volume":
+		return fmt.Sprintf("%d%%", int(s.BackgroundVolume*100+0.5))
 	case "fov":
 		return fmt.Sprintf("%.0f", s.FOV)
 	}

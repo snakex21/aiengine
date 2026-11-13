@@ -70,3 +70,19 @@ func TestNativeResolutionAndRenderScale(t *testing.T) {
 		t.Fatalf("render scale clamp %v", s.RenderScale)
 	}
 }
+
+func TestFullscreenModeAndBackgroundVolume(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	s := Defaults(1280, 720)
+	if s.Exclusive || s.BackgroundVolume != 0 {
+		t.Fatal("defaults must be borderless fullscreen and mute in background")
+	}
+	s.Exclusive, s.BackgroundVolume = true, 0.3
+	if err := s.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := Load(path, Defaults(1, 1))
+	if !got.Exclusive || got.BackgroundVolume != 0.3 {
+		t.Fatalf("got %+v", got)
+	}
+}

@@ -195,9 +195,9 @@ func TestSettingsRowsAdjustAndClamp(t *testing.T) {
 	if s.MasterVolume != 0.9 {
 		t.Fatalf("master %v", s.MasterVolume)
 	}
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 4; i++ {
 		m.Input(Down)
-	} // resolution
+	} // music, sfx, background volume, resolution
 	m.Input(Left)
 	m.Input(Left)
 	if !s.Native() || m.ValueText("resolution") != "Native" {
@@ -218,7 +218,12 @@ func TestSettingsRowsAdjustAndClamp(t *testing.T) {
 		m.Input(Left) // wraps around the list
 	}
 	m.Input(Down)
-	m.Input(Accept)
+	m.Input(Accept) // fullscreen on
+	m.Input(Down)
+	m.Input(Accept) // exclusive mode
+	if !s.Exclusive || m.ValueText("fullscreen_mode") != "Exclusive" {
+		t.Fatalf("fullscreen mode %+v", s)
+	}
 	m.Input(Down)
 	m.Input(Right)
 	if !s.Fullscreen || s.FOV != 71 {
