@@ -47,9 +47,9 @@ func levelRuntimeEnabled() bool {
 	return strings.EqualFold(strings.TrimSpace(activeManifest.Raw["RUNTIME"]), "level")
 }
 
-// loadLevelFile loads the project's MAIN_MAP.
-func loadLevelFile() (*level.Level, error) {
-	return level.LoadFile(projectPath(activeManifest.MainMap))
+// loadLevelFile loads a level map (path relative to the project).
+func loadLevelFile(path string) (*level.Level, error) {
+	return level.LoadFile(projectPath(path))
 }
 
 // startLevel (re)builds all per-level state: map, player, sprites, enemies,
@@ -63,6 +63,9 @@ func (app *App) startLevel(lv *level.Level) error {
 	app.paused = false
 
 	app.player = renderer.NewPlayerState(lv.SpawnX, lv.SpawnY, lv.SpawnAngle)
+	if app.ms.settingsActive {
+		app.player.FOV = app.ms.settings.FOV * math.Pi / 180
+	}
 	app.raycaster.Map = lv.Map
 	app.raycaster.Player = app.player
 	app.raycaster.OverlayTitle = ""
@@ -140,10 +143,14 @@ func (app *App) startLevel(lv *level.Level) error {
 	return nil
 }
 
-// restartLevel reloads MAIN_MAP from disk (so edits are picked up) and starts over.
+// restartLevel reloads the current level from disk (so edits are picked up)
+// and starts over.
 func (app *App) restartLevel() {
 	app.restartRequested = false
-	lv, err := loadLevelFile()
+	if app.ms.currentLevel.Path == "" {
+		app.ms.currentLevel = activeManifest.LevelList()[0]
+	}
+	lv, err := loadLevelFile(app.ms.currentLevel.Path)
 	if err != nil {
 		log.Printf("[Level] restart failed: %v", err)
 		return

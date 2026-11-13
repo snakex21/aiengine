@@ -26,6 +26,7 @@ import (
 	"aiengine/renderer"
 	"aiengine/scripting"
 	"aiengine/systems"
+	"aiengine/ui"
 )
 
 const (
@@ -77,6 +78,9 @@ type App struct {
 	prevMouseX float64
 	prevMouseY float64
 	mouseInit  bool
+
+	// Menus and player settings (manifest MENU); see menu_runtime.go.
+	ms menuState
 
 	// Level runtime (manifest RUNTIME level); nil for the legacy demo.
 	game             *levelGame
@@ -386,8 +390,7 @@ func (app *App) init() error {
 	}
 	app.config = cfg
 
-	winW := cfg.GetWindowWidth()
-	winH := cfg.GetWindowHeight()
+	winW, winH := app.loadSettings(cfg.GetWindowWidth(), cfg.GetWindowHeight())
 	app.windowedW = winW
 	app.windowedH = winH
 	log.Printf("Window size from config: %dx%d", winW, winH)
@@ -506,7 +509,8 @@ func (app *App) init() error {
 	var mapData *renderer.MapData
 	var lv *level.Level
 	if levelRuntimeEnabled() {
-		lv, err = loadLevelFile()
+		app.ms.currentLevel = activeManifest.LevelList()[0]
+		lv, err = loadLevelFile(app.ms.currentLevel.Path)
 		if err != nil {
 			return fmt.Errorf("level: %w", err)
 		}
@@ -540,6 +544,9 @@ func (app *App) init() error {
 		w.SetShouldClose(true)
 	})
 	window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
+
+	app.applySettings()
+	app.initMenu()
 
 	for _, cmd := range strings.Split(app.opts.exec, ";") {
 		if cmd = strings.TrimSpace(cmd); cmd != "" {
@@ -701,6 +708,7 @@ func (app *App) run() {
 			app.restartLevel()
 		}
 		app.handleInput()
+		app.menuFrame(app.deltaTime)
 
 		if !app.paused {
 			app.update(app.deltaTime)
@@ -753,17 +761,17 @@ func (app *App) handleInput() {
 		app.toggleFullscreen()
 	}
 
-	// Pause toggle works always.
+	// Menus take all other input (see keyCallback / menuFrame).
+	if app.menuActive() {
+		return
+	}
+
+	// Pause: pause menu when the project has one, else the legacy toggle.
 	if app.inputManager.IsJustPressed("pause") {
-		app.paused = !app.paused
-		if app.paused {
-			app.window.SetInputMode(glfw.CursorMode, glfw.CursorNormal)
-		} else {
-			app.window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
-			app.mouseInit = false
+		app.pauseRequested()
+		if app.menuActive() {
+			return
 		}
-		app.scriptEngine.Emit("onPause", app.paused)
-		log.Printf("[Engine] Pause toggled: %v", app.paused)
 	}
 
 	// When paused, ignore all gameplay input.
@@ -793,6 +801,12 @@ func (app *App) handleInput() {
 }
 
 func (app *App) toggleFullscreen() {
+	if app.ms.settingsActive {
+		app.ms.settings.Fullscreen = !app.fullscreen
+		app.applyVideo()
+		app.saveSettings()
+		return
+	}
 	if app.fullscreen {
 		app.window.SetMonitor(nil, app.windowedX, app.windowedY, app.windowedW, app.windowedH, 0)
 		gl.Viewport(0, 0, int32(app.windowedW), int32(app.windowedH))
@@ -811,8 +825,12 @@ func (app *App) toggleFullscreen() {
 
 // update handles per-frame game logic: player movement, sprite updates.
 func (app *App) update(dt float64) {
-	// Pause gameplay while console is open.
+	// Pause gameplay while the console or a menu is open (this also freezes
+	// game time, so script timers stop).
 	if app.console != nil && app.console.Open {
+		return
+	}
+	if app.menuActive() {
 		return
 	}
 	if app.levelEnded() {
@@ -897,14 +915,22 @@ func (app *App) update(dt float64) {
 	}
 	dx := cx - app.prevMouseX
 	dy := cy - app.prevMouseY
+	sens, invert := 1.0, false
+	if app.ms.settingsActive {
+		sens, invert = app.ms.settings.MouseSensitivity, app.ms.settings.InvertY
+	}
 	if dx != 0 {
-		app.player.Angle += dx * 0.003
+		app.player.Angle += dx * 0.003 * sens
 	}
 	if dy != 0 {
 		// Moving the mouse up (negative dy) looks up: the world shifts downward
 		// on screen and more ceiling is revealed. Positive pitch = looking up,
 		// applied consistently to the horizon, walls, and sprites.
-		app.player.AddPitch(-dy * 0.0015)
+		pitch := -dy * 0.0015 * sens
+		if invert {
+			pitch = -pitch
+		}
+		app.player.AddPitch(pitch)
 	}
 	app.prevMouseX = cx
 	app.prevMouseY = cy
@@ -1168,6 +1194,15 @@ func (app *App) render() {
 		app.raycaster.ConsoleHistory = app.console.History
 	}
 
+	// Menus draw into the UI layer and hide the gameplay HUD.
+	if app.menuActive() {
+		app.raycaster.UIDraw = app.ms.menu.Draw
+		app.raycaster.HideHUD = true
+	} else {
+		app.raycaster.UIDraw = nil
+		app.raycaster.HideHUD = false
+	}
+
 	app.raycaster.ApplyEffects(app.effects)
 	app.raycaster.Render(app.sprites)
 }
@@ -1223,6 +1258,19 @@ func (app *App) keyCallback(w *glfw.Window, key glfw.Key, scancode int, action g
 		return
 	}
 
+	// Menus take keyboard input; releases still reach the game so keys held
+	// when a menu opened do not stay "pressed".
+	if app.menuActive() {
+		if action == glfw.Press || action == glfw.Repeat {
+			if in, ok := menuKey(key); ok {
+				app.ms.inputs = append(app.ms.inputs, in)
+			}
+		} else if action == glfw.Release {
+			app.inputManager.OnKeyEvent(key, scancode, action, mods)
+		}
+		return
+	}
+
 	// F1 GUI panel (placeholder).
 	if key == glfw.KeyF1 && action == glfw.Press {
 		log.Println("[Cheats] F1 GUI panel (not yet implemented)")
@@ -1233,6 +1281,11 @@ func (app *App) keyCallback(w *glfw.Window, key glfw.Key, scancode int, action g
 }
 
 func (app *App) mouseButtonCallback(w *glfw.Window, button glfw.MouseButton, action glfw.Action, mods glfw.ModifierKey) {
+	if app.menuActive() && action == glfw.Press {
+		x, y := w.GetCursorPos()
+		app.ms.clicks = append(app.ms.clicks, menuClick{x: x, y: y, right: button == glfw.MouseButtonRight})
+		return
+	}
 	app.inputManager.OnMouseButtonEvent(button, action, mods)
 }
 
@@ -1373,6 +1426,37 @@ func (app *App) consoleCommand(cmd string, args []string) string {
 			return err.Error()
 		}
 		return "ok"
+
+	case "menu":
+		name := systems.ArgString(args, 0)
+		if app.ms.menu == nil {
+			return "no menu file (manifest MENU)"
+		}
+		if name == "" || name == "close" {
+			app.closeMenu()
+			return "menu closed"
+		}
+		if !app.ms.menu.Has(name) {
+			return "unknown screen: " + name
+		}
+		app.openMenu(name)
+		return "menu " + name
+
+	case "menukey":
+		// Queue menu inputs (for scripted tests): menukey down down right enter esc
+		keys := map[string]ui.Input{"up": ui.Up, "down": ui.Down, "left": ui.Left, "right": ui.Right, "enter": ui.Accept, "esc": ui.Back}
+		for _, k := range args {
+			in, ok := keys[strings.ToLower(k)]
+			if !ok {
+				return "menukey up|down|left|right|enter|esc ..."
+			}
+			app.ms.inputs = append(app.ms.inputs, in)
+		}
+		return fmt.Sprintf("queued %d menu input(s)", len(args))
+
+	case "fullscreen":
+		app.toggleFullscreen()
+		return fmt.Sprintf("fullscreen %v", app.fullscreen)
 
 	case "restart":
 		if app.game == nil {
