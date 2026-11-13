@@ -92,6 +92,8 @@ type App struct {
 	// Level runtime (manifest RUNTIME level); nil for the legacy demo.
 	game             *levelGame
 	winMode          windowMode
+	hurtFlash        float64 // red flash after the player is hit (decays)
+	shake            float64 // camera shake time left after a hit
 	unfocused        bool
 	focusPaused      bool // legacy pause caused by focus loss; a click resumes
 	swallowClick     bool // ignore the first click after the window regains focus
@@ -169,8 +171,9 @@ type DemoEnemy struct {
 	State       string
 	Alive       bool
 
-	// Level runtime only: behaviour brain and per-type sprite frames.
-	Brain       *level.Brain
+	// Level runtime only: movement/melee logic and per-type sprite frames.
+	Fighter     *level.Fighter
+	HitSound    string
 	FramePrefix string // texture prefix of the 3x2 atlas frames ("" = "enemy")
 	AttackRate  float64
 }
@@ -483,6 +486,10 @@ func (app *App) init() error {
 	app.audioSys.RegisterSoundDef(systems.SoundDef{
 		Name: "gunshot", Waveform: systems.WaveImpact,
 		Frequency: 800, Decay: 0.1, Noise: 0.3, Volume: 0.5,
+	})
+	app.audioSys.RegisterSoundDef(systems.SoundDef{
+		Name: "player_hurt", Waveform: systems.WaveImpact,
+		Frequency: 180, Decay: 0.18, Noise: 0.5, Volume: 0.6,
 	})
 	app.audioSys.RegisterSoundDef(systems.SoundDef{
 		Name: "footstep", Waveform: systems.WaveClick,
@@ -1046,8 +1053,8 @@ func (app *App) updateDemoEnemies(dt float64) {
 		dist := math.Sqrt(dx*dx + dy*dy)
 		enemy.AttackTimer -= dt
 
-		if enemy.Brain != nil && app.game != nil {
-			app.updateLevelEnemy(enemy, dt, dist)
+		if enemy.Fighter != nil && app.game != nil {
+			app.updateLevelEnemy(enemy, dt)
 		} else if dist <= enemy.AttackRange {
 			enemy.State = "attack"
 			if enemy.AttackTimer <= 0 {
@@ -1247,8 +1254,22 @@ func (app *App) render() {
 		app.raycaster.HideHUD = false
 	}
 
-	app.raycaster.ApplyEffects(app.effects)
+	// Hit feedback: red flash on top of script effects and a short shake.
+	fx := *app.effects
+	if app.hurtFlash > 0 {
+		fx.RedTint = math.Max(fx.RedTint, app.hurtFlash)
+		app.hurtFlash = math.Max(0, app.hurtFlash-app.deltaTime*2.5)
+	}
+	angle, pitch := app.player.Angle, app.player.Pitch
+	if app.shake > 0 && !app.menuActive() {
+		k := app.shake * 0.06
+		app.player.Angle += k * math.Sin(app.totalTime*90)
+		app.player.Pitch += k * math.Cos(app.totalTime*77)
+		app.shake = math.Max(0, app.shake-app.deltaTime)
+	}
+	app.raycaster.ApplyEffects(&fx)
 	app.raycaster.Render(app.sprites)
+	app.player.Angle, app.player.Pitch = angle, pitch
 }
 
 // shutdown cleans up resources.

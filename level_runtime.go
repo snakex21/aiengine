@@ -22,7 +22,6 @@ import (
 	"github.com/go-gl/glfw/v3.3/glfw"
 
 	"aiengine/level"
-	"aiengine/nav"
 	"aiengine/parser"
 	"aiengine/renderer"
 	"aiengine/scripting"
@@ -213,7 +212,8 @@ func (app *App) spawnLevelEnemy(p level.Placement) {
 		SightRange:  p.Float("sight", 6.5),
 		State:       "idle", Alive: true,
 		FramePrefix: prefix,
-		Brain:       level.NewBrain(p.Params["behavior"], p.X, p.Y, int64(len(app.enemies)+1)),
+		Fighter:     level.NewFighter(p, int64(len(app.enemies)+1)),
+		HitSound:    p.Params["attack_sound"],
 	}
 	sprite.TexName = app.enemyFrameFor(prefix, 0)
 	app.enemies = append(app.enemies, enemy)
@@ -221,40 +221,42 @@ func (app *App) spawnLevelEnemy(p level.Placement) {
 	app.scriptEngine.Entities[p.ID] = &scripting.EntityState{ID: p.ID, Type: p.Type, HP: hp, MaxHP: hp, X: p.X, Y: p.Y, Alive: true}
 }
 
-// updateLevelEnemy runs behaviour (level.Brain), A* steering (package nav)
-// and attacks for one level enemy.
-func (app *App) updateLevelEnemy(e *DemoEnemy, dt, dist float64) {
-	lv := app.game.lv
-	ex, ey := e.Sprite.X, e.Sprite.Y
-	sees := dist < e.sightRange() && !app.hasWallBetween(ex, ey, app.player.X, app.player.Y)
-	if dist <= e.AttackRange && sees {
+// updateLevelEnemy moves one level enemy and resolves its melee attacks
+// with level.Fighter (behaviour brain, A* steering, separation, wind-up and
+// cooldown).
+func (app *App) updateLevelEnemy(e *DemoEnemy, dt float64) {
+	f := e.Fighter
+	f.X, f.Y = e.Sprite.X, e.Sprite.Y
+	dmg := f.Step(app.game.lv, app.player.X, app.player.Y, dt, func(x, y float64) bool {
+		return app.isWallAt(x, y) || app.enemyBlocked(e, x, y)
+	})
+	e.Sprite.X, e.Sprite.Y = f.X, f.Y
+	switch f.State {
+	case "windup", "attack":
 		e.State = "attack"
-		if e.AttackTimer <= 0 {
-			e.AttackTimer = e.AttackRate
-			if app.console == nil || !app.console.CheatEnabled(systems.CheatGod) {
-				app.scriptEngine.SetPlayerHP(app.scriptEngine.GetPlayerHP() - e.Damage)
-			}
-		}
+	default:
+		e.State = f.State
+	}
+	if dmg > 0 {
+		app.playerHit(e, dmg)
+	}
+}
+
+// playerHit applies enemy damage with feedback: hurt sound, red flash and a
+// short camera shake. Death goes through SetPlayerHP (onPlayerDead → lose).
+func (app *App) playerHit(e *DemoEnemy, dmg float64) {
+	if app.console != nil && app.console.CheatEnabled(systems.CheatGod) {
 		return
 	}
-	tx, ty, move := e.Brain.Think(lv, ex, ey, app.player.X, app.player.Y, dt, e.sightRange(), dist, sees)
-	if !move {
-		e.State = "idle"
-		return
+	log.Printf("[Combat] %s hits player for %.0f", e.ID, dmg)
+	snd := e.HitSound
+	if snd == "" {
+		snd = "player_hurt"
 	}
-	dx, dy, ok := nav.Steer(lv, ex, ey, tx, ty, 0.2)
-	if !ok {
-		e.State = "idle"
-		return
-	}
-	e.State = "walk"
-	stepX, stepY := dx*e.Speed*dt, dy*e.Speed*dt
-	if !app.isWallAt(ex+stepX, ey) && !app.enemyBlocked(e, ex+stepX, ey) {
-		e.Sprite.X += stepX
-	}
-	if !app.isWallAt(e.Sprite.X, ey+stepY) && !app.enemyBlocked(e, e.Sprite.X, ey+stepY) {
-		e.Sprite.Y += stepY
-	}
+	app.scriptEngine.PlaySound(snd)
+	app.hurtFlash = 0.6
+	app.shake = 0.25
+	app.scriptEngine.SetPlayerHP(app.scriptEngine.GetPlayerHP() - dmg)
 }
 
 // updateLevel runs the session after player movement.
