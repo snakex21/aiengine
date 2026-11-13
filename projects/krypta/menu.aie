@@ -1,0 +1,60 @@
+# menu.aie — menu Kryształowej Krypty (format: docs/ui-menus.md)
+
+# Dźwięki nawigacji (proceduralne) i muzyka menu
+SOUND menu_move   WAVEFORM=square   FREQUENCY=660 DECAY=0.04 VOLUME=0.2
+SOUND menu_select WAVEFORM=triangle FREQUENCY=990 DECAY=0.12 VOLUME=0.35
+SOUND menu_back   WAVEFORM=triangle FREQUENCY=330 DECAY=0.10 VOLUME=0.3
+SOUND menu_drone  WAVEFORM=sine     FREQUENCY=73  DECAY=4.0  VOLUME=0.25
+SOUNDS move=menu_move select=menu_select back=menu_back
+
+STYLE title_color=#7FE0FF text_color=#D8D4E8 focus_color=#FFE08A focus_bg=#3A2A6AB0 dim_color=#05040AA0 hint_color=#8C88A0
+
+SCREEN main
+  TITLE "Kryształowa Krypta"
+  SUBTITLE "Zbierz kryształy, zanim krypta się zamknie"
+  BACKGROUND map 7.4 2.6 160
+  MUSIC menu_drone
+  HINT "Strzałki/mysz/pad: wybór   Enter: zatwierdź   Esc: wróć"
+  ITEM "Nowa gra" new_game
+  ITEM "Wybór poziomu" level_select
+  ITEM "Jak grać" menu instrukcja
+  ITEM "Ustawienia" settings
+  ITEM "Wyjście" quit
+
+SCREEN instrukcja
+  TITLE "Jak grać"
+  SUBTITLE "WASD - ruch, mysz - rozglądanie, LPM - różdżka, Esc - pauza"
+  BACKGROUND dim
+  HINT "Zbierz kryształy, omijaj kwas i strażników, wejdź do portalu"
+  ITEM "Wróć" back
+
+SCREEN level_select
+  TITLE "Wybór poziomu"
+  BACKGROUND dim
+  LABEL back "Wróć"
+
+SCREEN pause
+  TITLE "Pauza"
+  BACKGROUND dim
+  ESCAPE resume
+  HINT "Czas gry jest zatrzymany"
+  ITEM "Wznów" resume
+  ITEM "Restart" restart
+  ITEM "Ustawienia" settings
+  ITEM "Menu główne" main_menu
+
+SCREEN settings
+  TITLE "Ustawienia"
+  BACKGROUND dim
+  HINT "Strzałki lewo/prawo lub klik (PPM - wstecz) zmieniają wartość"
+  LABEL mouse_sensitivity "Czułość myszy"
+  LABEL invert_y "Odwróć oś Y"
+  LABEL master_volume "Głośność ogólna"
+  LABEL music_volume "Muzyka"
+  LABEL sfx_volume "Efekty"
+  LABEL resolution "Rozdzielczość"
+  LABEL fullscreen "Pełny ekran"
+  LABEL fov "Pole widzenia"
+  LABEL on "Tak"
+  LABEL off "Nie"
+  LABEL back "Wróć"

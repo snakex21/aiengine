@@ -1,9 +1,9 @@
-# maps/krypta.aie — Krysztalowa Krypta
-# Zbierz 6 krysztalow, omijaj kaluze kwasu i straznikow,
-# a potem uciekaj portalem za runiczna brama (D).
+# maps/krypta.aie — Kryształowa Krypta
+# Zbierz 6 kryształów, omijaj kałuże kwasu i strażników,
+# a potem uciekaj portalem za runiczną bramą (D).
 #
-# GRID: W = mur krypty, S = omszaly kamien, M = brazowa sciana z runa,
-#       D = brama, P = start gracza, . = podloga
+# GRID: W = mur krypty, S = omszały kamień, M = brązowa ściana z runą,
+#       D = brama, P = start gracza, . = podłoga
 # PLACE <rodzaj> <typ> <id> <x> <wysokosc> <z>   (x = kolumna, z = wiersz)
 
 MAP krypta
@@ -11,6 +11,8 @@ PLAYER_ANGLE 15
 PLAYER_HP 100
 FLOOR_COLOR #1E1A24
 CEILING_COLOR #0C0B14
+VAR_TIME_LIMIT 180
+VAR_MUSIC krypta_drone
 
 GRID
 W W W W W W W W W W W W W W W W
@@ -74,6 +76,12 @@ SOUND sizzle
   DECAY 0.15
   VOLUME 0.3
 
+SOUND krypta_drone
+  WAVEFORM triangle
+  FREQUENCY 55
+  DECAY 3.5
+  VOLUME 0.25
+
 SOUND heal
   WAVEFORM triangle
   FREQUENCY 660
@@ -85,8 +93,8 @@ TRIGGER brama_otwarta
   CONDITION var_at_least krysztaly 6
   ACTION unlock_door brama
   ACTION play_sound gate
-  ACTION show_message "BRAMA OTWARTA! BIEGNIJ DO PORTALU"
+  ACTION show_message "Brama otwarta! Biegnij do portalu"
 
 TRIGGER pierwszy_kwas
   CONDITION player_enters kwas1
-  ACTION show_message "KWAS PALI! OMIJAJ ZIELONE KALUZE"
+  ACTION show_message "Kwas parzy! Omijaj zielone kałuże"

@@ -1,10 +1,15 @@
--- scripts/krypta.lua — logika gry "Krysztalowa Krypta"
--- Liczy krysztaly, odmierza czas, zadaje obrazenia od kwasu,
--- obsluguje mikstury, wygrana i przegrana.
+-- scripts/krypta.lua — logika gry "Kryształowa Krypta" (wspólna dla poziomów)
+-- Liczy kryształy, odmierza czas, zadaje obrażenia od kwasu,
+-- obsługuje mikstury, wygraną i przegraną.
+--
+-- Parametry poziomu przychodzą z mapy (silnik ustawia zmienne):
+--   items_crystal  – liczba kryształów na mapie (PLACE item crystal ...)
+--   time_limit     – limit czasu w sekundach (VAR_TIME_LIMIT)
+--   music          – utwór tła (VAR_MUSIC, dźwięk SOUND z mapy)
 
-local TOTAL      = 6     -- krysztalow do zebrania
-local TIME_LIMIT = 180   -- sekund
-local ACID_DPS   = 20    -- obrazen na sekunde w kwasie
+local TOTAL      = getVar("items_crystal") or 6
+local TIME_LIMIT = getVar("time_limit") or 180
+local ACID_DPS   = 20    -- obrażeń na sekundę w kwasie
 local POTION_HP  = 35
 
 local crystals = 0
@@ -19,12 +24,12 @@ local function clock(t)
 end
 
 local function updateHUD()
-    setHUDText("1_krysztaly", "KRYSZTALY " .. crystals .. "/" .. TOTAL)
-    setHUDText("2_czas", "CZAS " .. clock(timeLeft))
+    setHUDText("1_krysztaly", "Kryształy " .. crystals .. "/" .. TOTAL)
+    setHUDText("2_czas", "Czas " .. clock(timeLeft))
     if crystals >= TOTAL then
-        setHUDText("3_cel", "CEL: PORTAL ZA BRAMA")
+        setHUDText("3_cel", "Cel: portal za bramą")
     else
-        setHUDText("3_cel", "CEL: ZBIERZ KRYSZTALY")
+        setHUDText("3_cel", "Cel: zbierz kryształy")
     end
 end
 
@@ -38,7 +43,9 @@ end
 registerEvent("onStart", function()
     setVar("krysztaly", 0)
     updateHUD()
-    showMessage("ZBIERZ " .. TOTAL .. " KRYSZTALOW I UCIEKNIJ PORTALEM", 5)
+    local music = getVar("music")
+    if music then playMusic(music) end
+    showMessage("Zbierz " .. TOTAL .. " kryształów i uciekaj portalem", 5)
 end)
 
 registerEvent("onItemPickup", function(id, kind)
@@ -47,7 +54,7 @@ registerEvent("onItemPickup", function(id, kind)
         setVar("krysztaly", crystals)   -- trigger brama_otwarta w mapie
         playSound("ding")
         if crystals < TOTAL then
-            showMessage("KRYSZTAL " .. crystals .. "/" .. TOTAL, 2)
+            showMessage("Kryształ " .. crystals .. "/" .. TOTAL, 2)
         end
     elseif kind == "potion" then
         setPlayerHP(getPlayerHP() + POTION_HP)
@@ -64,9 +71,9 @@ registerEvent("onZoneEnter", function(id, kind)
     elseif kind == "exit" then
         if crystals >= TOTAL then
             local used = TIME_LIMIT - timeLeft
-            winGame("UCIECZKA UDANA!\nCZAS: " .. clock(used) .. "   HP: " .. math.floor(getPlayerHP()))
+            winGame("Ucieczka udana!\nCzas: " .. clock(used) .. "   HP: " .. math.floor(getPlayerHP()))
         else
-            showMessage("PORTAL JEST USPIONY", 2)
+            showMessage("Portal jest uśpiony", 2)
         end
     end
 end)
@@ -82,7 +89,7 @@ end)
 registerEvent("onPlayerDead", function()
     setFilter("red_flash", 0)
     setFilter("desaturate", 1)
-    loseGame("POLEGLES W KRYPCIE\nKRYSZTALY: " .. crystals .. "/" .. TOTAL)
+    loseGame("Poległeś w krypcie\nKryształy: " .. crystals .. "/" .. TOTAL)
 end)
 
 registerEvent("onUpdate", function(dt)
@@ -90,11 +97,11 @@ registerEvent("onUpdate", function(dt)
     if timeLeft <= 0 then
         updateHUD()
         setFilter("desaturate", 1)
-        loseGame("KONIEC CZASU\nKRYSZTALY: " .. crystals .. "/" .. TOTAL)
+        loseGame("Koniec czasu\nKryształy: " .. crystals .. "/" .. TOTAL)
         return
     end
 
-    -- Kwas zadaje obrazenia porcjami co 0.25 s.
+    -- Kwas zadaje obrażenia porcjami co 0.25 s.
     if anyAcid() then
         acidAcc = acidAcc + dt
         if acidAcc >= 0.25 then
@@ -105,14 +112,14 @@ registerEvent("onUpdate", function(dt)
         acidAcc = 0
     end
 
-    -- Wygaszanie czerwonego blysku po obrazeniach.
+    -- Wygaszanie czerwonego błysku po obrażeniach.
     if flash > 0 then
         flash = flash - dt * 2.5
         if flash < 0 then flash = 0 end
         setFilter("red_flash", flash)
     end
 
-    -- Ostrzezenie o koncu czasu.
+    -- Ostrzeżenie o końcu czasu.
     if timeLeft < 30 then
         setFilter("vignette", 0.5)
     end

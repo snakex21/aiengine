@@ -21,7 +21,12 @@ type game struct {
 
 func start(t *testing.T) *game {
 	t.Helper()
-	lv, err := level.LoadFile("maps/krypta.aie")
+	return startMap(t, "maps/krypta.aie")
+}
+
+func startMap(t *testing.T, path string) *game {
+	t.Helper()
+	lv, err := level.LoadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,10 +98,10 @@ func TestLevelLoadsWithExpectedContent(t *testing.T) {
 	if n := len(g.lv.ByKind("enemy")); n != 3 {
 		t.Fatalf("enemies = %d", n)
 	}
-	if n := len(g.lv.Sounds); n != 4 {
+	if n := len(g.lv.Sounds); n != 5 {
 		t.Fatalf("sounds = %d", n)
 	}
-	if !hudHas(g.eng, "KRYSZTALY 0/6") || !hudHas(g.eng, "CZAS 3:00") {
+	if !hudHas(g.eng, "Kryształy 0/6") || !hudHas(g.eng, "Czas 3:00") {
 		t.Fatalf("HUD = %v", g.eng.HUDLines())
 	}
 }
@@ -142,7 +147,7 @@ func TestWinByCollectingAllCrystalsAndEnteringPortal(t *testing.T) {
 	if g.lv.IsSolid(12.5, 4.5) {
 		t.Fatal("gate did not open after 6 crystals")
 	}
-	if !hudHas(g.eng, "KRYSZTALY 6/6") || !strings.Contains(g.eng.CurrentMessage(), "BRAMA OTWARTA") {
+	if !hudHas(g.eng, "Kryształy 6/6") || !strings.Contains(g.eng.CurrentMessage(), "Brama otwarta") {
 		t.Fatalf("HUD %v message %q", g.eng.HUDLines(), g.eng.CurrentMessage())
 	}
 
@@ -151,7 +156,7 @@ func TestWinByCollectingAllCrystalsAndEnteringPortal(t *testing.T) {
 	if g.s.State != level.Won {
 		t.Fatalf("state = %v, want won", g.s.State)
 	}
-	if !strings.HasPrefix(g.eng.EndText, "UCIECZKA UDANA") {
+	if !strings.HasPrefix(g.eng.EndText, "Ucieczka udana") {
 		t.Fatalf("end text %q", g.eng.EndText)
 	}
 }
@@ -184,7 +189,7 @@ func TestLoseByDyingInAcid(t *testing.T) {
 	for i := 0; i < 100 && g.s.State == level.Playing; i++ {
 		g.s.Update(0.1, acid.X, acid.Y)
 	}
-	if g.s.State != level.Lost || !strings.HasPrefix(g.eng.EndText, "POLEGLES") {
+	if g.s.State != level.Lost || !strings.HasPrefix(g.eng.EndText, "Poległeś") {
 		t.Fatalf("state %v end %q", g.s.State, g.eng.EndText)
 	}
 }
@@ -194,7 +199,7 @@ func TestLoseWhenTimeRunsOut(t *testing.T) {
 	for i := 0; i < 200 && g.s.State == level.Playing; i++ {
 		g.s.Update(1, g.lv.SpawnX, g.lv.SpawnY)
 	}
-	if g.s.State != level.Lost || !strings.HasPrefix(g.eng.EndText, "KONIEC CZASU") {
+	if g.s.State != level.Lost || !strings.HasPrefix(g.eng.EndText, "Koniec czasu") {
 		t.Fatalf("state %v end %q", g.s.State, g.eng.EndText)
 	}
 	if g.s.Elapsed < 179 || g.s.Elapsed > 181 {
