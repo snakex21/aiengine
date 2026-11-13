@@ -327,13 +327,15 @@ void main(){FragColor=texture(uTex,vTexCoord);}
 	log.Printf("[Renderer] Sprite shader compiled OK (ID=%d)", rc.spriteProg.ID)
 
 	// --- Fullscreen quad ---
+	// The CPU buffer is top-down (row 0 = top of screen) while texture
+	// row 0 maps to v=0, so v runs 1 at the bottom to 0 at the top.
 	quadVerts := []float32{
-		-1, -1, 0, 0,
-		1, -1, 1, 0,
-		1, 1, 1, 1,
-		-1, -1, 0, 0,
-		1, 1, 1, 1,
-		-1, 1, 0, 1,
+		-1, -1, 0, 1,
+		1, -1, 1, 1,
+		1, 1, 1, 0,
+		-1, -1, 0, 1,
+		1, 1, 1, 0,
+		-1, 1, 0, 0,
 	}
 	gl.GenVertexArrays(1, &rc.quadVAO)
 	gl.GenBuffers(1, &rc.quadVBO)
@@ -999,7 +1001,9 @@ func (rc *Raycaster) drawSprites(sprites []*Sprite) {
 	}
 
 	rc.spriteProg.Use()
-	rc.spriteProg.SetUniform1i("uFlipY", 0)
+	// The quad spans aPos.y 0..1 from the top edge down, like the HUD weapon:
+	// position by the top edge with full height, texture upright.
+	rc.spriteProg.SetUniform1i("uFlipY", 1)
 	gl.Enable(gl.BLEND)
 	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 	gl.Disable(gl.DEPTH_TEST)
@@ -1059,8 +1063,8 @@ func (rc *Raycaster) drawSprites(sprites []*Sprite) {
 			}
 
 			rc.spriteProg.SetUniform2f("uScreenSize", float32(sw), float32(sh))
-			rc.spriteProg.SetUniform2f("uSpritePos", float32(stripe), float32((drawStartY+drawEndY)/2.0))
-			rc.spriteProg.SetUniform2f("uSpriteSize", 1.0, float32((drawEndY-drawStartY)/2.0))
+			rc.spriteProg.SetUniform2f("uSpritePos", float32(stripe), float32(drawStartY))
+			rc.spriteProg.SetUniform2f("uSpriteSize", 1.0, float32(drawEndY-drawStartY))
 			rc.spriteProg.SetUniform1f("uAlpha", s.Alpha)
 			rc.spriteProg.SetUniform1f("uShade", shade)
 			rc.spriteProg.SetUniform1f("uTexX", float32(texX))
