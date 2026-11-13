@@ -101,6 +101,7 @@ func (app *App) startLevel(lv *level.Level) error {
 	g := &levelGame{lv: lv, sprites: make(map[string]*levelSprite), loops: map[string]moverLoop{}}
 	g.session = level.NewSession(lv, app.scriptEngine)
 	g.session.Bodies = app.moverBodies
+	g.session.HostDamage = true // crushers: damage with feedback, god mode
 	g.session.Exec.OnTeleportPlayer = func(x, y, z float64) { app.placePlayer(x, z) }
 	app.scriptEngine.OnRestart = func() { app.restartRequested = true }
 	app.scriptEngine.OnSpawn = func(id, typ string, x, y float64) {

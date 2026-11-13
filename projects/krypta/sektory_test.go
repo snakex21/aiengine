@@ -70,7 +70,19 @@ func TestSanktuariumStairsBalconyAndPool(t *testing.T) {
 	if p.X < 1.1 {
 		t.Fatalf("walked through the pool's west wall (x=%.2f)", p.X)
 	}
-	// North: the portal niche (0.25) and its angled back walls.
+	// North: the niche gate is closed (a door sector, opened by the
+	// crystals trigger); open it, then walk into the portal niche (0.25)
+	// up to its angled back walls.
+	p = renderer.NewPlayerState(12, 9, -math.Pi/2)
+	p.PlaceAt(0)
+	walkSectors(lv, p, 0, -1, 200)
+	if p.Y < 7 {
+		t.Fatalf("walked through the closed niche gate (y=%.2f)", p.Y)
+	}
+	lv.SetDoor("wrota", true)
+	for i := 0; i < 60; i++ {
+		lv.UpdateMovers(0.05, nil, nil)
+	}
 	p = renderer.NewPlayerState(12, 9, -math.Pi/2)
 	p.PlaceAt(0)
 	walkSectors(lv, p, 0, -1, 200)

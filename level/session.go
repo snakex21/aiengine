@@ -77,6 +77,9 @@ type Session struct {
 	// Bodies, when set, lists the things movers must respect (player,
 	// enemies, ...); without it only the player is considered.
 	Bodies func(px, py float64, buf []Body) []Body
+	// HostDamage leaves crush damage to the host (EventMover events);
+	// otherwise the session takes it from the player's HP itself.
+	HostDamage bool
 
 	picked   map[string]bool
 	inside   map[string]bool
@@ -317,6 +320,9 @@ func (s *Session) updateMovers(dt, px, py float64, events []Event) []Event {
 		case MoverStop:
 			s.Script.Emit("onMoverStop", ev.Tag)
 		case MoverCrush:
+			if ev.Body == PlayerBody && !s.HostDamage {
+				s.Script.SetPlayerHP(s.Script.GetPlayerHP() - ev.Damage)
+			}
 			s.Script.Emit("onCrush", ev.Body, ev.Damage)
 		}
 		events = append(events, Event{Kind: EventMover, ID: ev.Tag, Mover: &ev})

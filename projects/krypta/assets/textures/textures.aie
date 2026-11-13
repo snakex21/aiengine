@@ -1,0 +1,6 @@
+# textures.aie — deskryptor tekstur Krypty (wspólny dla wszystkich poziomów).
+# TEXTURE_ANIM <nazwa> frames=<klatki> fps=<klatki/s> scroll=<u>,<v>
+# Mapa używa nazwy (np. FLOOR_TEX_GRID z TEX_SYMBOLS w=woda albo floor_tex=woda
+# w sektorze), silnik podstawia bieżącą klatkę.
+TEXTURE_ANIM woda frames=woda_0,woda_1,woda_2,woda_3 fps=5 scroll=0.05,0.12
+TEXTURE_ANIM lawa frames=lawa_0,lawa_1,lawa_2,lawa_3 fps=3 scroll=0.03,0.06

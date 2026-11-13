@@ -8,6 +8,7 @@ TEXTURES assets/textures/kopalnia
 FLOOR_COLOR #3A3028
 CEILING_COLOR #120C08
 HEIGHT_STEP 0.125
+DOOR_STYLE slide
 LIGHT_AMBIENT 0.45
 FOG yes color=#140E0A density=0.12
 VAR_TIME_LIMIT 270
@@ -87,6 +88,26 @@ LIGHT_GRID
 . . . . . . . . 2 2 2 2 2 2 . . . . . . . .
 . . . . . . . . 2 2 2 2 2 2 . . . . . . . .
 . . . . . . . . 2 2 2 2 2 2 . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . .
+
+# Zalana komora: animowana woda (assets/textures/textures.aie).
+TEX_SYMBOLS w=woda
+FLOOR_TEX_GRID
+. . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . w w w w w w . . . . . . . .
+. . . . . . . . w w w w w w . . . . . . . .
+. . . . . . . . w w w w w w . . . . . . . .
+. . . . . . . . w w w w w w . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . .
 . . . . . . . . . . . . . . . . . . . . . .
 
 PLACE light flicker latarnia_a 3.5 0.7 1.5 radius=3 level=0.6 speed=7 min=0.3

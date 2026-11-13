@@ -510,7 +510,7 @@ func (lv *Level) buildMovers(specs []moverSpec) error {
 		m.target = m.Pos
 		lv.addMover(m)
 		lv.applyMover(m, m.Pos)
-		if m.Ceil && (m.Kind == "door" || m.Kind == "crusher") {
+		if m.Kind == "door" || m.Kind == "crusher" || m.Kind == "lift" {
 			lv.pegArea(m)
 		}
 	}

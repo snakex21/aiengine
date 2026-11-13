@@ -12,11 +12,12 @@ PLAYER_HP 100
 FLOOR_COLOR #1E1A24
 CEILING_COLOR #0C0B14
 HEIGHT_STEP 0.125
+DOOR_STYLE slide
 LIGHT_AMBIENT 0.4
 FOG yes color=#0C0B14 density=0.1
 VAR_TIME_LIMIT 180
 VAR_MUSIC krypta_drone
-INTRO Sześć kryształów, kwas i strażnicy.|Runiczna brama otworzy się dopiero, gdy zbierzesz wszystkie kryształy.
+INTRO Sześć kryształów, kwas i strażnicy.|W południowym korytarzu pracuje miażdżący strop - przebiegnij, gdy się podnosi, albo zatrzymaj go dźwignią.|Runiczna brama otworzy się dopiero, gdy zbierzesz wszystkie kryształy.
 OUTRO Krypta zostaje w tyle, ale chłód bije z dołu - przed tobą Lodowe Groby.
 
 GRID
@@ -84,6 +85,25 @@ LIGHT_GRID
 . . . . . . . . . . . . . . . .
 . 3 3 3 3 3 3 3 3 3 3 3 3 3 3 .
 . . . . . . . . . . . . . . . .
+
+# Pułapka (c): strop miażdży co kilka sekund, dźwignia d1 go zatrzymuje.
+TAG_GRID
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . c c . . .
+. . . . . . . . . . . . . . . .
+MOVER crusher c start=on speed=1.1 wait=0.8 damage=12
+PLACE switch dzwignia d1 9.5 0.35 12.2 tag=c action=stop once=yes scale=0.4
 
 PLACE light flicker pochodnia_a 1.5 0.7 1.5 radius=3 level=0.6 speed=8 min=0.3
 PLACE light flicker pochodnia_c 6.5 0.7 7.5 radius=3 level=0.7 speed=11 min=0.2

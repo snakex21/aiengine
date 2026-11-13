@@ -9,9 +9,10 @@ CEILING_COLOR #0C0B14
 VAR_TIME_LIMIT 210
 VAR_MUSIC krypta_drone
 HEIGHT_STEP 0.125
+DOOR_STYLE slide
 LIGHT_AMBIENT 0.55
 FOG yes color=#0C0B14 density=0.08
-INTRO Drzwi otwierasz klawiszem E.|Czerwony klucz otworzy czerwone drzwi.|Niektóre ściany skrywają sekrety - sprawdzaj je klawiszem E.
+INTRO Drzwi otwierasz klawiszem E - przesuwają się w górę.|Na wysoki podest z kryształem wjedziesz windą: stań przy niej i wciśnij E.|Czerwony klucz otworzy czerwone drzwi. Niektóre ściany skrywają sekrety.
 OUTRO Przedsionek za tobą. Dalej czeka właściwa krypta.
 
 GRID
@@ -34,8 +35,8 @@ W W W W W W W W W W W W W W W W W W W W
 # podest z krysztalem, schody w dol do krypty, wysoka sala, obnizona hala.
 FLOOR_GRID
 . . . . . . . . . . . . . . . . . . . .
-. . . . . . . . . . 2 2 . . . . 2 2 2 .
-. . . . . . . . . . 2 2 . . . . 2 2 2 .
+. . . . . . . . . 8 8 8 . . . . 2 2 2 .
+. . . . . . . . . . 8 8 . . . . 2 2 2 .
 . . . . . . . . . . . . . . . . . . . .
 . . . . . . . . . . . . . . . . . . . .
 . . . . . . . . a . . . . . . a . . . .
@@ -50,10 +51,10 @@ FLOOR_GRID
 
 CEILING_GRID
 . . . . . . . . . . . . . . . . . . . .
-. . . . . . . . . . . . . G G G G G G .
-. . . . . . . . . . . . . G G G G G G .
-. . . . . . . . . . . . . G G G G G G .
-. . . . . . . . . . . . . G G G G G G .
+. . . . . . G G G G G G . G G G G G G .
+. . . . . . G G G G G G . G G G G G G .
+. . . . . . G G G G G G . G G G G G G .
+. . . . . . G G G G G G . G G G G G G .
 . . . . . . . . . . . . . . . . . . . .
 . . . . . . . . . . C C C C C C C C C .
 . . . . . . . . . . C C C C C C C C C .
@@ -79,6 +80,24 @@ LIGHT_GRID
 . 2 2 2 2 2 2 2 2 2 . . . . . . . . . .
 . 2 2 2 2 2 . 2 2 2 . . . . . . . . . .
 . . . . . . . . . . . . . . . . . . . .
+
+# Winda (w): podnosi się na wysoki podest z kryształem.
+TAG_GRID
+. . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . w . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . .
+MOVER lift w speed=0.8 wait=2.5
 
 PLACE light flicker pochodnia_a 1.5 0.7 1.5 radius=3 level=0.6 speed=8 min=0.3
 PLACE light pulse oltarz 10.5 0 1.5 radius=2.5 level=0.6 speed=0.6 min=0.2

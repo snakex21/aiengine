@@ -123,6 +123,7 @@ func TestEverythingReachableButPortalNeedsTheGate(t *testing.T) {
 		t.Fatal("portal reachable while the gate is closed")
 	}
 	g.lv.SetDoor("brama", true)
+	settle(g.lv, "brama", nil)
 	if !reachable(g.lv)[cell(g.at(t, "portal"))] {
 		t.Fatal("portal unreachable with the gate open")
 	}
@@ -142,11 +143,11 @@ func TestWinByCollectingAllCrystalsAndEnteringPortal(t *testing.T) {
 			t.Fatalf("after %s items left = %d", id, g.s.ItemsLeft())
 		}
 	}
-	if !g.lv.IsSolid(12.5, 4.5) {
+	if d, _ := g.lv.Door("brama"); d.Open {
 		t.Fatal("gate opened before the 6th crystal")
 	}
 	g.visit(t, "k6")
-	if g.lv.IsSolid(12.5, 4.5) {
+	if d, _ := g.lv.Door("brama"); !d.Open {
 		t.Fatal("gate did not open after 6 crystals")
 	}
 	if !hudHas(g.eng, "Kryształy 6/6") || !strings.Contains(g.eng.CurrentMessage(), "Brama otwarta") {

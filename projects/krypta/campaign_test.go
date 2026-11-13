@@ -27,17 +27,21 @@ func campaignLevels(t *testing.T) (*parser.Manifest, *progress.Campaign) {
 
 // solve explores a level like a player would: walk anywhere reachable, pick
 // up every item there, open doors whose key was found, open secret walls and
-// plain doors, and open the script gate once its condition is met (all
-// crystals reachable, or the boss reachable). It returns the reachable cells
-// at the end and the order in which items were collected.
+// plain doors, ride lifts and flip switches, and open the script gate once
+// its condition is met (all crystals reachable, or the boss reachable).
+// Doors and movers really move (the level's heights change), so the walk
+// follows the same step and headroom rules as the game. It returns the
+// reachable cells at the end and the order in which items were collected.
 func solve(lv *level.Level, boss string) (map[nav.Cell]bool, []level.Placement) {
 	keys := map[string]bool{}
 	opened := map[string]bool{}
 	taken := map[string]bool{}
+	cycled := map[*level.Mover]bool{}
+	switched := map[string]bool{}
 	var order []level.Placement
 	crystalsTotal := len(byType(lv, "crystal"))
+	reach := flood(lv, map[nav.Cell]bool{nav.CellAt(lv.SpawnX, lv.SpawnY): true})
 	for {
-		reach := flood(lv, opened)
 		progressMade := false
 		for _, p := range lv.Placements {
 			if p.Kind != "item" || taken[p.ID] || !reach[nav.CellAt(p.X, p.Y)] {
@@ -62,23 +66,82 @@ func solve(lv *level.Level, boss string) (map[nav.Cell]bool, []level.Placement) 
 				bossReached = true
 			}
 		}
+		gateOK := (boss == "" && crystals == crystalsTotal) || (boss != "" && bossReached)
 		for _, d := range lv.Doors() {
-			if opened[d.ID] || !nextToReach(reach, d) {
+			if opened[d.ID] || !nextTo(reach, d.X, d.Y) {
 				continue
 			}
 			ok := d.Use || d.Secret || (d.Key != "" && keys[d.Key])
 			if d.Key == "" && !d.Use && !d.Secret { // script gate
-				ok = (boss == "" && crystals == crystalsTotal) || (boss != "" && bossReached)
+				ok = gateOK
 			}
 			if ok {
 				opened[d.ID] = true
+				lv.SetDoor(d.ID, true)
+				reach = settle(lv, d.ID, reach)
 				progressMade = true
 			}
+		}
+		// Movers: use them from next to (or inside) their area.
+		for _, m := range lv.Movers() {
+			if _, isDoor := lv.Door(m.Tag); isDoor || cycled[m] || (!m.Use && m.Walk == "") || !areaNear(lv, m, reach) {
+				continue
+			}
+			if (m.Locked && !gateOK) || (m.Key != "" && !keys[m.Key]) {
+				continue
+			}
+			cycled[m] = true
+			lv.Activate(m.Tag)
+			reach = settle(lv, m.Tag, reach)
+			progressMade = true
+		}
+		// Switches the player can walk up to.
+		for _, p := range lv.ByKind("switch") {
+			if switched[p.ID] || !nextTo(reach, int(p.X), int(p.Y)) && !reach[nav.CellAt(p.X, p.Y)] {
+				continue
+			}
+			switched[p.ID] = true
+			if p.Params["action"] == "stop" {
+				continue // stopping a trap opens nothing
+			}
+			lv.SetDoor(p.Params["tag"], true)
+			reach = settle(lv, p.Params["tag"], reach)
+			progressMade = true
 		}
 		if !progressMade {
 			return reach, order
 		}
 	}
+}
+
+// settle runs the movers of a tag until they rest (a lift goes away and
+// comes back), adding every cell reachable at each stop.
+func settle(lv *level.Level, tag string, reach map[nav.Cell]bool) map[nav.Cell]bool {
+	for i := 0; i < 1200; i++ {
+		busy, arrived := false, false
+		for _, m := range lv.MoversByTag(tag) {
+			was := m.Moving()
+			lv.UpdateMover(m, 0.05, nil, nil)
+			busy = busy || m.Busy()
+			arrived = arrived || (was && !m.Moving())
+		}
+		if arrived {
+			reach = flood(lv, reach)
+		}
+		if !busy {
+			break
+		}
+	}
+	return flood(lv, reach)
+}
+
+func areaNear(lv *level.Level, m *level.Mover, reach map[nav.Cell]bool) bool {
+	for _, c := range m.Cells(lv.Map.Width) {
+		if reach[nav.Cell{X: c[0], Y: c[1]}] || nextTo(reach, c[0], c[1]) {
+			return true
+		}
+	}
+	return false
 }
 
 func byType(lv *level.Level, typ string) []level.Placement {
@@ -91,31 +154,30 @@ func byType(lv *level.Level, typ string) []level.Placement {
 	return out
 }
 
-func nextToReach(reach map[nav.Cell]bool, d level.DoorInfo) bool {
+func nextTo(reach map[nav.Cell]bool, x, y int) bool {
 	for _, o := range []nav.Cell{{X: 1}, {X: -1}, {Y: 1}, {Y: -1}} {
-		if reach[nav.Cell{X: d.X + o.X, Y: d.Y + o.Y}] {
+		if reach[nav.Cell{X: x + o.X, Y: y + o.Y}] {
 			return true
 		}
 	}
 	return false
 }
 
-func flood(lv *level.Level, opened map[string]bool) map[nav.Cell]bool {
-	passable := func(c nav.Cell) bool {
-		if d, ok := lv.DoorAt(c.X, c.Y); ok {
-			return opened[d.ID]
-		}
-		return !lv.Solid(c.X, c.Y)
+// flood grows the reachable cells from seeds under the current heights
+// (closed doors have no headroom; instant doors are solid cells).
+func flood(lv *level.Level, seeds map[nav.Cell]bool) map[nav.Cell]bool {
+	seen := map[nav.Cell]bool{}
+	var queue []nav.Cell
+	for c := range seeds {
+		seen[c] = true
+		queue = append(queue, c)
 	}
-	start := nav.CellAt(lv.SpawnX, lv.SpawnY)
-	seen := map[nav.Cell]bool{start: true}
-	queue := []nav.Cell{start}
 	for len(queue) > 0 {
 		c := queue[0]
 		queue = queue[1:]
 		for _, o := range []nav.Cell{{X: 1}, {X: -1}, {Y: 1}, {Y: -1}} {
 			n := nav.Cell{X: c.X + o.X, Y: c.Y + o.Y}
-			if !seen[n] && passable(n) && stepOK(lv, c, n) {
+			if !seen[n] && !lv.Solid(n.X, n.Y) && stepOK(lv, c, n) {
 				seen[n] = true
 				queue = append(queue, n)
 			}
@@ -148,10 +210,9 @@ func TestCampaignLevelsAreSolvable(t *testing.T) {
 			if !reach[portal] {
 				t.Errorf("portal unreachable at the end")
 			}
-			// The portal must not be reachable before the gate opens (sector
-			// maps have no doors yet: there the script keeps the portal asleep
-			// until every crystal is collected).
-			if lv.Sectors == nil && flood(lv, map[string]bool{})[portal] {
+			// The portal must not be reachable before the gate opens.
+			fresh, _ := level.LoadFile(l.Path)
+			if flood(fresh, map[nav.Cell]bool{nav.CellAt(fresh.SpawnX, fresh.SpawnY): true})[portal] {
 				t.Errorf("portal reachable without opening any door")
 			}
 			// Every key must be found before its door (not behind it).
@@ -268,12 +329,14 @@ func TestBossSummonsSpiders(t *testing.T) {
 	if len(spawned) != 2 || spawned[0] != "pajak" {
 		t.Fatalf("spawned %v, want 2 spiders in 20 s", spawned)
 	}
-	if !lv.Solid(8, 11) {
+	if d, _ := lv.DoorAt(8, 11); d.Open || lv.CeilAt(8, 11) > lv.FloorAt(8, 11) {
 		t.Fatal("gate must stay closed while the boss lives")
 	}
 	eng.Emit("onEnemyDead", "boss")
-	s.Update(0.1, lv.SpawnX, lv.SpawnY)
-	if lv.Solid(8, 11) {
+	for i := 0; i < 20; i++ { // the gate slides up
+		s.Update(0.1, lv.SpawnX, lv.SpawnY)
+	}
+	if d, _ := lv.DoorAt(8, 11); !d.Open || !stepOK(lv, nav.Cell{X: 8, Y: 10}, nav.Cell{X: 8, Y: 11}) {
 		t.Fatal("gate did not open after the boss died")
 	}
 	if len(lv.EnemyTypes["pajak"]) == 0 || lv.EnemyTypes["wladca"]["hp"] != "300" {

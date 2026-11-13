@@ -120,7 +120,8 @@ prowadzących do tego sektora), `floor_tex`, `ceil_tex`, `tag`. Współrzędne
 nie mogą być ujemne. `PLACE`, `TRIGGER`, `SOUND` i światła działają jak na
 siatce. Kolizje, stopnie, upadki i linia wzroku liczą się na liniach
 sektorów; wrogowie szukają drogi po siatce 1×1 próbkowanej z sektorów.
-Drzwi (`PLACE door`) działają na razie tylko na mapach `GRID`.
+Drzwi (`PLACE door`) na mapie sektorowej zawsze się przesuwają: animują
+sektor pod podanym punktem (patrz „Animowane sektory").
 
 Konwersja mapy GRID na sektorową (każda wolna kratka staje się sektorem):
 
@@ -129,8 +130,128 @@ aiengine --grid2sectors maps/krypta.aie maps/krypta_sektory.aie
 ```
 
 Przykład: poziom `maps/sanktuarium.aie` kampanii Krypty.
-Edytor zachowuje bloki `FLOOR_GRID`/`CEILING_GRID` przy zapisie (malowanie
-wysokości w edytorze jeszcze nie istnieje).
+Edytor zachowuje bloki `FLOOR_GRID`/`CEILING_GRID`, `TAG_GRID`,
+`*_TEX_GRID` oraz linie `MOVER`/`TEXTURE_ANIM` przy zapisie (malowanie
+wysokości i tagów w edytorze jeszcze nie istnieje).
+
+### Animowane sektory: drzwi, windy, zgniatacze, ruchome podłogi
+
+„Mover" przesuwa podłogę albo sufit wszystkich kawałków mapy z danym tagiem:
+komórek zaznaczonych w `TAG_GRID` (mapa GRID) albo sektorów z `tag=` (mapa
+sektorowa). Wysokości to zwykłe pola mapy, więc renderer, kolizje, linia
+wzroku i A* wrogów od razu widzą zmianę (na mapie sektorowej odświeżane są
+tylko komórki siatki nawigacji leżące w ruchomych sektorach).
+
+```
+TAGS w=winda c=pulapka        # opcjonalne nazwy symboli (bez tego tag = symbol)
+TAG_GRID                      # jeden znak na komórkę GRID, . = brak tagu
+. . . w . .
+. . . c . .
+MOVER door  brama   speed=1.5 wait=4 key=klucz_czerwony
+MOVER lift  winda   low=0 high=1 speed=1 wait=2.5
+MOVER crusher pulapka low=0.1 speed=1 wait=0.6 damage=10 start=on
+MOVER floor plyta   to=0.5 speed=0.5 loop=yes wait=1
+MOVER ceil  strop   to=0.8 return=yes wait=3
+```
+
+| rodzaj | rusza | domyślnie |
+|---|---|---|
+| `door` | sufit od podłogi (zamknięte) do `open=` (domyślnie sufit z mapy) | `speed=1.5 wait=4` (0 = zostają otwarte), `use=yes`, cofa się, gdy ktoś stoi w przejściu |
+| `lift` | podłogę z `high=` (pozycja spoczynkowa, domyślnie podłoga z mapy) do `low=` (domyślnie najniższa podłoga sąsiadów), czeka `wait`, wraca | `speed=1 wait=2.5 use=yes`, cofa się, gdy zgniótłby ciało o sufit |
+| `crusher` | sufit z `high=` do `low=` (domyślnie podłoga+0.1) i z powrotem, w kółko | `speed=1 wait=0.6 damage=10`, przy oporze stoi i zadaje obrażenia co 0.4 s |
+| `floor` / `ceil` | podłogę / sufit do `to=` | `speed=1`, `return=yes` wraca po `wait`, `loop=yes` jeździ w kółko |
+
+Wspólne klucze: `use=yes|no` (aktywacja klawiszem E: stojąc przed obszarem
+albo na nim - winda), `walk=<tag>` (aktywacja, gdy gracz wejdzie na komórki
+/sektory z tym tagiem; `walk=yes` = własny obszar), `key=<przedmiot>`
+(zużywany przy pierwszym użyciu), `locked=yes` (E tylko pokazuje
+`onDoorLocked`; otwierają skrypty i przełączniki), `start=on` (rusza od
+startu, np. zgniatacz), `start=open` (drzwi otwarte na starcie),
+`reverse=yes|no`, `damage=`, `sound_start=`, `sound_move=` (pętla w czasie
+ruchu), `sound_stop=` (`none` = cisza; domyślnie `mover_start`,
+`mover_move`, `mover_stop` - poziom może zdefiniować własne `SOUND` o tych
+nazwach). Głośność zależy od odległości gracza.
+
+Gracz i wrogowie jeżdżą na windach (gracz nie spada, kamera się nie
+„schodkuje"), zamykające się drzwi i windy cofają się przed ciałem,
+zgniatacz naciska i rani (gracza i wrogów). Sterowanie:
+
+- klawisz E (interact) - na obszarze przed sobą lub pod sobą (windy),
+- `PLACE switch <typ> <id> x y z tag=<tag>[,<tag>] action=activate|open|close|stop once=yes key=<przedmiot> sound=<dźwięk>`
+  (przełącznik: E w zasięgu 1.3 przed sobą; bez `sprite=` silnik rysuje
+  dźwignię, `sprite_on=` = obrazek po przełączeniu; zdarzenie `onSwitch(id, tag)`),
+- `PLACE zone ... activate=<tag>` - wejście w strefę,
+- akcje triggerów `activate <tag>`, `move_floor <tag> <wys> [prędkość]`,
+  `move_ceil <tag> <wys> [prędkość]`, `unlock_door <tag>` / `lock_door <tag>`,
+- skrypty (Lua, w JS jako `engine.*`): `activate(tag)`, `moveFloor(tag, wys[, prędkość])`,
+  `moveCeil(tag, wys[, prędkość])`, `stopMover(tag)`, `getFloor(tag)`,
+  `getCeil(tag)`, `openDoor(tag)` / `closeDoor(tag)` (też `unlockDoor`/`lockDoor`).
+  `moveFloor`/`moveCeil` działają też dla tagu bez `MOVER`.
+
+Zdarzenia: `onMoverStart(tag)`, `onMoverStop(tag)`, `onCrush(ciało, obrażenia)`
+(`player` albo id wroga), `onAreaEnter(tag)`, `onDoorOpen(tag)`, `onDoorLocked(tag, klucz)`.
+
+Drzwi z `PLACE door` i `D` w GRID przesuwają się z `anim=yes` przy drzwiach
+albo dla całej mapy z `DOOR_STYLE slide` (`anim=no` zostawia dawne,
+natychmiastowe). Klucze, sekrety (`secret=yes` - wyglądają jak ściana) i
+`unlockDoor` działają jak dotąd; `speed=`, `wait=` jak przy `MOVER door`.
+Mapy bez tych linii działają jak wcześniej.
+
+Przykłady: Krypta - winda w Przedsionku, zgniatacz z dźwignią w Krypcie,
+wrota niszy (sektor) w Sanktuarium.
+
+### Animowane tekstury
+
+```
+TEXTURE_ANIM woda frames=woda_0,woda_1,woda_2,woda_3 fps=5 scroll=0.05,0.12
+TEXTURE_ANIM runy frames=runy_0,runy_1 fps=2
+TEXTURE_ANIM lawa scroll=0.2,0.05          # samo przesuwanie
+```
+
+Animacja jest przypisana do nazwy tekstury: każda powierzchnia z tą nazwą
+pokazuje bieżącą klatkę (`fps` klatek na sekundę) przesuniętą o `scroll`
+(u,v powtórzeń tekstury na sekundę; ściany: u wzdłuż ściany, podłogi: u =
+x świata). Koszt: wybór klatki raz na klatkę obrazu, przesunięcie to jedno
+dodawanie przy próbkowaniu. Linie mogą stać w mapie albo w deskryptorze
+`assets/textures/textures.aie` (oraz `textures.aie` w katalogu `TEXTURES`
+poziomu) - wtedy działają we wszystkich poziomach. Pliki klatek:
+`<katalog tekstur>/<nazwa>.png` (kwadrat, bok potęga 2).
+
+Mapa GRID wybiera tekstury per komórka paletą i warstwami (`.` = domyślna):
+
+```
+TEX_SYMBOLS w=woda l=lawa r=runy
+FLOOR_TEX_GRID       # podłogi komórek
+CEILING_TEX_GRID     # sufity komórek
+WALL_TEX_GRID        # ściany pełnych komórek i ścianki stopni wolnych
+```
+
+Mapa sektorowa: `floor_tex=woda` itd. przy `SECTOR`.
+
+### Animacja sprite'ów wrogów
+
+Wrogowie mają stany animacji `idle`, `walk`, `attack` (zamach i cios),
+`pain` (po trafieniu) i `death` (ciało zostaje na ziemi) i 8 kątów widzenia
+(widok wybiera kąt między kierunkiem, w którym wróg patrzy, a kamerą).
+Arkusz z rotacjami opisuje plik tekstowy obok atlasu (`<atlas>.anim`):
+
+```
+SHEET straznik_8.png      # obrazek (względem pliku)
+GRID 8 7                  # kolumny wiersze równych komórek
+ROTATIONS 8               # kolumny = kąty (0 przód, dalej przeciwnie do zegara), wiersze = klatki
+MIRROR yes                # opcjonalnie: narysowane tylko kolumny 0..4, 5..7 to odbicia 3..1
+ANIM idle   frames=0,1     fps=2
+ANIM walk   frames=1,2,3,2 fps=7
+ANIM attack frames=4,5     fps=8
+ANIM pain   frames=6       fps=6 loop=no
+ANIM death  frames=6,7,8   fps=6 loop=no
+```
+
+Bez deskryptora silnik bierze klasyczny atlas 3×2 (`ENEMY_ATLAS`,
+`atlas=`) i generuje z niego zastępcze 8 rotacji (zwężenie przy obrocie,
+ciemniejsza strona odwrócona, ciemny tył) i klatki śmierci. Wróg bez atlasu
+to pojedynczy obrazek jak dotąd. `PLACE enemy ... height=` to wysokość
+ciała dla drzwi i zgniataczy (domyślnie min(0.6, scale)).
 
 ## PLACE
 
@@ -146,7 +267,8 @@ Bez `id` silnik nada własne (`item_crystal_1`).
 | `item` | znajdźka, zbierana po wejściu | `radius` (0.5), `sound`, `sprite` (domyślnie = typ), `scale`, `bob` |
 | `zone` | strefa wejścia/wyjścia | `radius` (0.5), `sprite`, `scale` |
 | `enemy` | wróg (atlas `ENEMY_ATLAS`) | `hp`, `speed`, `damage`, `range`, `sight`, `scale` |
-| `door` | `PLACE door <id> x y z` – drzwi otwierane `unlockDoor(id)` | |
+| `door` | `PLACE door <id> x y z` – drzwi otwierane `unlockDoor(id)` | `key`, `secret`, `use`, `anim`, `speed`, `wait` |
+| `switch` | przełącznik (E) uruchamiający movery tagu | `tag`, `action`, `once`, `key`, `sprite`, `sprite_on`, `sound` |
 | `prop` | dekoracja z obrazkiem `assets/sprites/<typ>.png` | `sprite`, `scale` |
 
 ## Zdarzenia i API skryptów

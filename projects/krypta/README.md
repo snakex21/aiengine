@@ -101,6 +101,22 @@ się pauzuje, zwalnia kursor i wycisza dźwięk.
 - **Przegrana**: HP spada do 0 albo kończy się czas. Enter powtarza poziom z
   takim stanem, z jakim na niego wszedłeś.
 
+## Ruchome mechanizmy
+
+- **Drzwi** we wszystkich poziomach przesuwają się w górę (E), cofają się,
+  gdy ktoś stoi w przejściu; bramy runiczne otwierają się same po spełnieniu
+  warunku.
+- **Winda** w Przedsionku zawozi na wysoki podest z kryształem (E przy
+  windzie albo stojąc na niej).
+- **Zgniatacz** w południowym korytarzu Krypty miażdży co kilka sekund;
+  dźwignia obok go zatrzymuje.
+- **Wrota niszy** w Sanktuarium (sektor) otwierają się po zebraniu kryształów.
+- **Animowana woda** w zalanej komorze kopalni i sadzawce sanktuarium,
+  **lawa** w narożnikach Serca Krypty (`assets/textures/textures.aie`,
+  klatki z `narzedzia/generuj_animacje.go`).
+- Wrogowie mają animacje chodu, ataku, bólu i śmierci oraz 8 kątów widzenia
+  (zastępcze rotacje generowane z atlasów).
+
 ## Jak to jest zrobione
 
 Gra używa wyłącznie formatów silnika – nie ma w niej kodu Go poza testami:
