@@ -14,9 +14,11 @@ import (
 type EventKind int
 
 const (
-	EventPickup    EventKind = iota // player collected an item
-	EventZoneEnter                  // player entered a zone
-	EventZoneExit                   // player left a zone
+	EventPickup     EventKind = iota // player collected an item
+	EventZoneEnter                   // player entered a zone
+	EventZoneExit                    // player left a zone
+	EventDoorOpened                  // interact opened a door
+	EventDoorLocked                  // interact hit a locked/script door
 )
 
 // Event is emitted by Session.Update.
@@ -85,6 +87,7 @@ func NewSession(lv *Level, eng *scripting.Engine) *Session {
 		}
 	}
 	eng.OnWin = func() { s.end(Won) }
+	eng.ExitTarget = ""
 	eng.OnLose = func() { s.end(Lost) }
 
 	s.Exec = &gameplay.TriggerExecutor{
@@ -110,6 +113,13 @@ func NewSession(lv *Level, eng *scripting.Engine) *Session {
 	// Expose level facts to scripts: level_name, items_<type> counts and
 	// every MAP property VAR_<NAME> as variable <name> (number if numeric).
 	eng.SetVar("level_name", lv.Name)
+	secrets := 0.0
+	for _, d := range lv.Doors() {
+		if d.Secret {
+			secrets++
+		}
+	}
+	eng.SetVar("secrets_total", secrets)
 	counts := map[string]float64{}
 	for _, p := range lv.ByKind("item") {
 		counts[p.Type]++
@@ -129,6 +139,15 @@ func NewSession(lv *Level, eng *scripting.Engine) *Session {
 	for _, t := range lv.Triggers {
 		s.Triggers.AddTrigger(t)
 	}
+	s.Exec.OnExitTo = func(target string) { eng.ExitLevel(target, "") }
+	// Enemy deaths feed enemy_dead / all_enemies_dead conditions.
+	eng.On("onEnemyDead", func(args ...interface{}) {
+		if len(args) > 0 {
+			if id, ok := args[0].(string); ok {
+				s.Triggers.MarkEnemyDead(id)
+			}
+		}
+	})
 	return s
 }
 
@@ -171,6 +190,9 @@ func (s *Session) Update(dt, px, py float64) []Event {
 			}
 			s.picked[p.ID] = true
 			s.Triggers.MarkItemPicked(p.ID)
+			if give := p.Params["give"]; give != "" {
+				s.Script.GiveItem(give, 1)
+			}
 			events = append(events, Event{EventPickup, p.ID, p.Type})
 			if snd := p.Params["sound"]; snd != "" {
 				s.Script.PlaySound(snd)
@@ -186,6 +208,9 @@ func (s *Session) Update(dt, px, py float64) []Event {
 			if in {
 				events = append(events, Event{EventZoneEnter, p.ID, p.Type})
 				s.Script.Emit("onZoneEnter", p.ID, p.Type)
+				if to := p.Params["to"]; to != "" && s.State == Playing {
+					s.Script.ExitLevel(to, "") // exit zone straight to a level
+				}
 			} else {
 				events = append(events, Event{EventZoneExit, p.ID, p.Type})
 				s.Script.Emit("onZoneExit", p.ID, p.Type)
@@ -209,6 +234,50 @@ func (s *Session) Update(dt, px, py float64) []Event {
 	s.Triggers.UpdateContext(s.Script.GetPlayerHP(), px, py, alive, alive == 0)
 	s.Triggers.Tick()
 	return events
+}
+
+// Interact is the player's "use" action at (px, py) facing angle: it opens
+// the first closed door within reach in front of the player when allowed
+// (plain doors, secret walls, or key doors when the key is in the
+// inventory - the key is consumed). Locked and script-only doors emit
+// onDoorLocked(id, key). Opening emits onDoorOpen(id) and, for secrets,
+// onSecretFound(id).
+func (s *Session) Interact(px, py, angle float64) []Event {
+	if s.State != Playing {
+		return nil
+	}
+	for _, reach := range []float64{0.5, 0.8, 1.1, 1.4} {
+		x := int(math.Floor(px + math.Cos(angle)*reach))
+		y := int(math.Floor(py + math.Sin(angle)*reach))
+		d, ok := s.Level.DoorAt(x, y)
+		if !ok {
+			if s.Level.Solid(x, y) {
+				return nil // a plain wall is in the way
+			}
+			continue
+		}
+		if d.Open {
+			continue
+		}
+		switch {
+		case d.Key != "":
+			if s.Script.ItemCount(d.Key) <= 0 {
+				s.Script.Emit("onDoorLocked", d.ID, d.Key)
+				return []Event{{EventDoorLocked, d.ID, d.Key}}
+			}
+			s.Script.TakeItem(d.Key, 1)
+		case d.Secret, d.Use:
+		default:
+			s.Script.Emit("onDoorLocked", d.ID, "")
+			return []Event{{EventDoorLocked, d.ID, ""}}
+		}
+		s.Script.UnlockDoor(d.ID)
+		if d.Secret {
+			s.Script.Emit("onSecretFound", d.ID)
+		}
+		return []Event{{EventDoorOpened, d.ID, d.Key}}
+	}
+	return nil
 }
 
 // within reports whether (px, py) is inside the placement's radius

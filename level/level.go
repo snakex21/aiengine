@@ -14,6 +14,9 @@
 // Any other single-character symbol is floor and is recorded in Markers.
 //
 // PLACE lines: PLACE <kind> [type] [id] <x> <y> <z> [key=value ...]
+// "PLACE enemy_type <name> 0 0 0 k=v..." defines enemy defaults per type.
+// Doors: key=<item> (opens with interact when the player holds the item,
+// which is consumed), secret=yes (looks like the wall it replaces), use=yes.
 // (doors take only an id: PLACE door <id> <x> <y> <z>; the cell becomes a
 // door that unlockDoor/lockDoor and the unlock_door action open and close).
 // x and z are map-plane coordinates (x = grid column, z = grid row, 1 unit =
@@ -66,11 +69,25 @@ type Level struct {
 	Triggers   []*parser.AIENode
 	Sounds     []*parser.AIENode
 
-	doors map[string]door
+	// EnemyTypes are templates from "PLACE enemy_type <name> 0 0 0 k=v...":
+	// default parameters for enemies of that type (also for spawnEnemy).
+	EnemyTypes map[string]map[string]string
+
+	doors map[string]*door
+}
+
+// DoorInfo describes a door for the host and scripts.
+type DoorInfo struct {
+	ID     string
+	X, Y   int
+	Key    string // inventory item needed to open it with "interact"
+	Secret bool   // looks like a wall; opens with "interact"
+	Use    bool   // opens with "interact" (plain grid doors)
+	Open   bool
 }
 
 type door struct {
-	X, Y int
+	DoorInfo
 	Cell renderer.MapCell
 }
 
@@ -113,7 +130,9 @@ func FromDocument(doc *parser.AIEDocument) (*Level, error) {
 		Name:    mapNode.Name,
 		Markers: make(map[string][][2]int),
 		Props:   make(map[string]string),
-		doors:   make(map[string]door),
+		doors:   make(map[string]*door),
+
+		EnemyTypes: map[string]map[string]string{},
 	}
 	for k, v := range mapNode.Properties {
 		lv.Props[strings.ToUpper(k)] = v
@@ -138,6 +157,10 @@ func FromDocument(doc *parser.AIEDocument) (*Level, error) {
 				counters[p.Kind]++
 				p.ID = fmt.Sprintf("%s_%s_%d", p.Kind, p.Type, counters[p.Kind])
 			}
+			if p.Kind == "enemy_type" {
+				lv.EnemyTypes[p.Type] = p.Params
+				continue
+			}
 			if p.Kind == "door" {
 				cx, cy := int(math.Floor(p.X)), int(math.Floor(p.Y))
 				cell := lv.Map.GetCell(cx, cy)
@@ -145,7 +168,12 @@ func FromDocument(doc *parser.AIEDocument) (*Level, error) {
 					cell = renderer.CellDoor
 					lv.Map.Grid[cy][cx] = cell
 				}
-				lv.doors[p.ID] = door{X: cx, Y: cy, Cell: cell}
+				// A named door replaces the anonymous grid door on its cell.
+				delete(lv.doors, fmt.Sprintf("door_%d_%d", cx, cy))
+				lv.doors[p.ID] = &door{DoorInfo: DoorInfo{
+					ID: p.ID, X: cx, Y: cy, Key: p.Params["key"],
+					Secret: isYes(p.Params["secret"]), Use: isYes(p.Params["use"]),
+				}, Cell: cell}
 			}
 			lv.Placements = append(lv.Placements, p)
 		case "TRIGGER":
@@ -154,7 +182,26 @@ func FromDocument(doc *parser.AIEDocument) (*Level, error) {
 			lv.Sounds = append(lv.Sounds, child)
 		}
 	}
+	// Enemy templates fill in parameters an enemy does not set itself.
+	for i, p := range lv.Placements {
+		if p.Kind != "enemy" {
+			continue
+		}
+		for k, v := range lv.EnemyTypes[p.Type] {
+			if _, set := p.Params[k]; !set {
+				lv.Placements[i].Params[k] = v
+			}
+		}
+	}
 	return lv, nil
+}
+
+func isYes(v string) bool {
+	switch strings.ToLower(v) {
+	case "yes", "true", "1", "tak":
+		return true
+	}
+	return false
 }
 
 func (lv *Level) buildGrid(rows []string) error {
@@ -187,7 +234,8 @@ func (lv *Level) buildGrid(rows []string) error {
 				cells[y][x] = renderer.CellWall3
 			case "D":
 				cells[y][x] = renderer.CellDoor
-				lv.doors[fmt.Sprintf("door_%d_%d", x, y)] = door{X: x, Y: y, Cell: renderer.CellDoor}
+				id := fmt.Sprintf("door_%d_%d", x, y)
+				lv.doors[id] = &door{DoorInfo: DoorInfo{ID: id, X: x, Y: y, Use: true}, Cell: renderer.CellDoor}
 			case "P":
 				lv.SpawnX, lv.SpawnY = cx, cy
 				spawnFound = true
@@ -286,7 +334,36 @@ func (lv *Level) SetDoor(id string, open bool) bool {
 	} else {
 		lv.Map.Grid[d.Y][d.X] = d.Cell
 	}
+	d.Open = open
 	return true
+}
+
+// Door returns information about a door.
+func (lv *Level) Door(id string) (DoorInfo, bool) {
+	d, ok := lv.doors[id]
+	if !ok {
+		return DoorInfo{}, false
+	}
+	return d.DoorInfo, true
+}
+
+// DoorAt returns the door on a cell, if any.
+func (lv *Level) DoorAt(x, y int) (DoorInfo, bool) {
+	for _, d := range lv.doors {
+		if d.X == x && d.Y == y {
+			return d.DoorInfo, true
+		}
+	}
+	return DoorInfo{}, false
+}
+
+// Doors lists all doors.
+func (lv *Level) Doors() []DoorInfo {
+	out := make([]DoorInfo, 0, len(lv.doors))
+	for _, d := range lv.doors {
+		out = append(out, d.DoorInfo)
+	}
+	return out
 }
 
 // IsSolid reports whether the map cell under (x, y) blocks movement.

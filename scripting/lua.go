@@ -416,6 +416,31 @@ func (lb *LuaBridge) registerAPI() {
 		return 0
 	}))
 
+	L.SetGlobal("exitLevel", L.NewFunction(func(L *lua.LState) int {
+		e.ExitLevel(L.OptString(1, "next"), L.OptString(2, ""))
+		return 0
+	}))
+
+	L.SetGlobal("giveItem", L.NewFunction(func(L *lua.LState) int {
+		e.GiveItem(L.CheckString(1), L.OptInt(2, 1))
+		return 0
+	}))
+
+	L.SetGlobal("takeItem", L.NewFunction(func(L *lua.LState) int {
+		L.Push(lua.LNumber(e.TakeItem(L.CheckString(1), L.OptInt(2, 1))))
+		return 1
+	}))
+
+	L.SetGlobal("itemCount", L.NewFunction(func(L *lua.LState) int {
+		L.Push(lua.LNumber(e.ItemCount(L.CheckString(1))))
+		return 1
+	}))
+
+	L.SetGlobal("hasItem", L.NewFunction(func(L *lua.LState) int {
+		L.Push(lua.LBool(e.ItemCount(L.CheckString(1)) > 0))
+		return 1
+	}))
+
 	L.SetGlobal("setHUDText", L.NewFunction(func(L *lua.LState) int {
 		e.SetHUDText(L.CheckString(1), L.OptString(2, ""))
 		return 0

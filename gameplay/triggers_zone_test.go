@@ -46,3 +46,16 @@ func TestTriggerZoneEnterExitAndVars(t *testing.T) {
 		t.Fatalf("fired = %s, want %s", got, want)
 	}
 }
+
+func TestExitToAction(t *testing.T) {
+	tr := NewTriggerRegistry()
+	var got []string
+	tr.SetExecutor(&TriggerExecutor{OnExitTo: func(to string) { got = append(got, to) }})
+	tr.AddTrigger(mustTrigger(t, "TRIGGER a\n  CONDITION var_equals go 1\n  ACTION exit_to poziom2\n"))
+	tr.AddTrigger(mustTrigger(t, "TRIGGER b\n  CONDITION var_equals go 1\n  ACTION exit_to\n"))
+	tr.SetVar("go", 1.0)
+	tr.Tick()
+	if strings.Join(got, ",") != "poziom2,next" {
+		t.Fatalf("exit_to targets = %v", got)
+	}
+}

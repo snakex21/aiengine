@@ -231,6 +231,24 @@ func (jb *JSBridge) registerAPI() {
 		return goja.Undefined()
 	})
 
+	engineObj.Set("exitLevel", func(call goja.FunctionCall) goja.Value {
+		e.ExitLevel(optString(call, 0), optString(call, 1))
+		return goja.Undefined()
+	})
+
+	engineObj.Set("giveItem", func(call goja.FunctionCall) goja.Value {
+		n := 1
+		if !goja.IsUndefined(call.Argument(1)) {
+			n = int(call.Argument(1).ToInteger())
+		}
+		e.GiveItem(call.Argument(0).String(), n)
+		return goja.Undefined()
+	})
+
+	engineObj.Set("itemCount", func(call goja.FunctionCall) goja.Value {
+		return vm.ToValue(e.ItemCount(call.Argument(0).String()))
+	})
+
 	engineObj.Set("restartMap", func(call goja.FunctionCall) goja.Value {
 		e.RestartMap()
 		return goja.Undefined()

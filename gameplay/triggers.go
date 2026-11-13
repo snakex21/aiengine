@@ -147,6 +147,7 @@ type TriggerExecutor struct {
 	OnChangeMusic    func(file string)
 	OnSpawnEnemy     func(typ string, x, y, z float64)
 	OnSpawnProp      func(typ string, x, y, z float64)
+	OnExitTo         func(target string) // exit_to <level id|next>
 }
 
 // Execute runs all actions for a trigger.
@@ -244,6 +245,14 @@ func (te *TriggerExecutor) executeAction(action *TriggerAction) {
 				parseFloat(parts[0]),
 				parseFloat(parts[1]),
 			)
+		}
+	case "exit_to":
+		if te.OnExitTo != nil {
+			target := action.Param
+			if target == "" {
+				target = "next"
+			}
+			te.OnExitTo(target)
 		}
 	case "change_music":
 		if te.OnChangeMusic != nil {

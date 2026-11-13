@@ -86,9 +86,16 @@ type Engine struct {
 	OnWin       func()
 	OnLose      func()
 	OnMapChange func(mapName string)
-	OnRestart   func()                     // restartMap()
-	OnExit      func()                     // exitGame()
-	OnDoor      func(id string, open bool) // unlockDoor/lockDoor
+	OnRestart   func()                             // restartMap()
+	OnExit      func()                             // exitGame()
+	OnDoor      func(id string, open bool)         // unlockDoor/lockDoor
+	OnSpawn     func(id, typ string, x, y float64) // spawnEnemy: host creates the visible enemy
+
+	// Inventory: item name -> count (keys, relics...).
+	Inventory map[string]int
+
+	// ExitTarget is set by exitLevel: "next" or a level id ("" = none).
+	ExitTarget string
 }
 
 // quietEvents are emitted every frame; logging them would flood the log.
@@ -134,6 +141,7 @@ func NewEngine() *Engine {
 		Vars:          make(map[string]interface{}),
 		Timers:        make(map[string]*TimerState),
 		HUDText:       make(map[string]string),
+		Inventory:     make(map[string]int),
 		HUDVisible:    true,
 		Volume:        1.0,
 		listeners:     make(map[string][]func(args ...interface{})),
@@ -306,6 +314,9 @@ func (e *Engine) SpawnEnemy(entityType string, x, y, z float64) string {
 		Alive: true,
 	}
 	e.mu.Unlock()
+	if e.OnSpawn != nil {
+		e.OnSpawn(id, entityType, x, y)
+	}
 	e.Emit("onEnemySpawn", id, entityType, x, y, z)
 	return id
 }
@@ -457,6 +468,55 @@ func (e *Engine) LoseGame(text string) {
 	if e.OnLose != nil {
 		e.OnLose()
 	}
+}
+
+// ExitLevel completes the current level and asks the host to continue with
+// target ("next" or a level id). text is an optional end headline (used when
+// the project is not a campaign).
+func (e *Engine) ExitLevel(target, text string) {
+	if target == "" {
+		target = "next"
+	}
+	e.mu.Lock()
+	e.ExitTarget = target
+	e.mu.Unlock()
+	e.Emit("onLevelExit", target)
+	e.WinGame(text)
+}
+
+// GiveItem adds n of an item to the inventory and emits onItemAdded.
+func (e *Engine) GiveItem(name string, n int) {
+	e.mu.Lock()
+	e.Inventory[name] += n
+	c := e.Inventory[name]
+	e.mu.Unlock()
+	e.Emit("onInventory", name, float64(c))
+}
+
+// TakeItem removes up to n of an item; returns how many were removed.
+func (e *Engine) TakeItem(name string, n int) int {
+	e.mu.Lock()
+	have := e.Inventory[name]
+	if n > have {
+		n = have
+	}
+	e.Inventory[name] = have - n
+	if e.Inventory[name] == 0 {
+		delete(e.Inventory, name)
+	}
+	c := e.Inventory[name]
+	e.mu.Unlock()
+	if n > 0 {
+		e.Emit("onInventory", name, float64(c))
+	}
+	return n
+}
+
+// ItemCount returns how many of an item the player has.
+func (e *Engine) ItemCount(name string) int {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.Inventory[name]
 }
 
 // RestartMap asks the host to reload the current level.
