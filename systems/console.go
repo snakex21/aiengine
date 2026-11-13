@@ -181,7 +181,7 @@ func ExecuteCommand(cs *ConsoleState, line string) string {
 		if cs.OnCommand != nil {
 			return cs.OnCommand("tp", args)
 		}
-		return "tp <x> <y>"
+		return "tp <x> <y> [angle_deg]"
 
 	case "reload":
 		if cs.OnCommand != nil {

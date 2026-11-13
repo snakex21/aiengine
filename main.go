@@ -1146,6 +1146,9 @@ func (app *App) render() {
 	app.raycaster.HUDMaxHP = int(app.scriptEngine.PlayerMaxHP)
 	app.raycaster.HUDAmmo = app.scriptEngine.HUDAmmo
 	app.raycaster.HUDAmmoMax = app.scriptEngine.HUDAmmoMax
+	if app.levelEnded() {
+		app.showEndScreen() // also covers endings triggered outside update (console, events)
+	}
 	app.raycaster.HUDMessage = app.scriptEngine.CurrentMessage()
 	lines := app.scriptEngine.HUDLines()
 	if app.console != nil && app.console.CheatEnabled(systems.CheatFPS) {
@@ -1341,6 +1344,9 @@ func (app *App) consoleCommand(cmd string, args []string) string {
 		y := systems.ArgFloat(args, 1, app.player.Y)
 		app.player.X = x
 		app.player.Y = y
+		if len(args) > 2 { // optional facing in degrees (0 = +x, 90 = +y)
+			app.player.Angle = systems.ArgFloat(args, 2, 0) * math.Pi / 180
+		}
 		return fmt.Sprintf("teleported to (%.1f, %.1f)", x, y)
 
 	case "reload":
