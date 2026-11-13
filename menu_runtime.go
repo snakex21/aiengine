@@ -187,6 +187,11 @@ func (app *App) menuFrame(dt float64) {
 // menuAction carries out a host action returned by the menu.
 func (app *App) menuAction(a ui.Action) {
 	log.Printf("[Menu] action %s %s", a.Kind, a.Arg)
+	if app.cs != nil && (a.Kind == "continue" || a.Kind == "new_game" || a.Kind == "load_level") {
+		app.closeMenu()
+		app.campaignMenuAction(a.Kind, a.Arg)
+		return
+	}
 	switch a.Kind {
 	case "resume":
 		app.closeMenu()
@@ -407,6 +412,8 @@ func (app *App) pollGamepads() {
 		if !app.menuActive() {
 			if pressed(glfw.ButtonStart) {
 				app.pauseRequested()
+			} else if pressed(glfw.ButtonA) && app.campaignBlocking() && app.cs.phase != phaseLoading {
+				app.campaignAdvance()
 			}
 			continue
 		}

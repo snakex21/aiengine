@@ -127,6 +127,11 @@ func (app *App) startLevel(lv *level.Level) error {
 		}
 	}
 
+	// Campaign: state carried in from the previous level (HP, items, vars).
+	if app.cs != nil {
+		app.cs.carry.Apply(app.scriptEngine)
+	}
+
 	// Scripts: Lua game logic + optional JS HUD.
 	app.luaBridge = scripting.NewLuaBridge(app.scriptEngine)
 	g.session.CallLua = func(name string) {
@@ -277,6 +282,9 @@ func (app *App) updateLevel(dt float64) {
 func (app *App) showEndScreen() {
 	if app.raycaster.OverlayTitle != "" {
 		return
+	}
+	if app.cs != nil && app.game.session.State == level.Won {
+		return // campaigns show the outro screen instead
 	}
 	text := strings.TrimSpace(app.scriptEngine.EndText)
 	title, rest, _ := strings.Cut(text, "\n")

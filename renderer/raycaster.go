@@ -268,6 +268,7 @@ type Raycaster struct {
 	OverlayTitle    string
 	OverlaySubtitle string
 	OverlayColor    [4]uint8
+	OverlayOpaque   bool // fully cover the world (loading screens)
 
 	// HideHUD suppresses crosshair, bars, HUD text and the weapon (menus).
 	HideHUD bool
@@ -558,7 +559,11 @@ func (rc *Raycaster) drawHUDText(sw, sh int) {
 	}
 
 	if rc.OverlayTitle != "" {
-		FillRect(rc.ui, sw, sh, 0, 0, sw, sh, [4]uint8{0, 0, 0, 175})
+		veil := [4]uint8{0, 0, 0, 175}
+		if rc.OverlayOpaque {
+			veil[3] = 255
+		}
+		FillRect(rc.ui, sw, sh, 0, 0, sw, sh, veil)
 		col := rc.OverlayColor
 		if col[3] == 0 {
 			col = [4]uint8{255, 220, 90, 255}

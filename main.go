@@ -23,6 +23,7 @@ import (
 	"aiengine/input"
 	"aiengine/level"
 	"aiengine/parser"
+	"aiengine/progress"
 	"aiengine/renderer"
 	"aiengine/scripting"
 	"aiengine/systems"
@@ -81,6 +82,9 @@ type App struct {
 
 	// Menus and player settings (manifest MENU); see menu_runtime.go.
 	ms menuState
+	// Campaign flow (manifest CAMPAIGN yes); see campaign_runtime.go.
+	cs      *campaignState
+	advPrev bool // advance key (Enter/Space) held last frame
 
 	// Level runtime (manifest RUNTIME level); nil for the legacy demo.
 	game             *levelGame
@@ -557,6 +561,7 @@ func (app *App) init() error {
 
 	app.applySettings()
 	app.initMenu()
+	app.initCampaign()
 
 	for _, cmd := range strings.Split(app.opts.exec, ";") {
 		if cmd = strings.TrimSpace(cmd); cmd != "" {
@@ -738,6 +743,7 @@ func (app *App) run() {
 		}
 		app.handleInput()
 		app.menuFrame(app.deltaTime)
+		app.campaignFrame(app.deltaTime)
 
 		if !app.paused {
 			app.update(app.deltaTime)
@@ -808,6 +814,14 @@ func (app *App) handleInput() {
 		return
 	}
 
+	// Campaign screens (intro/outro/loading): Enter/Space/click advance.
+	if app.campaignBlocking() {
+		if app.advancePressed() && app.cs.phase != phaseLoading {
+			app.campaignAdvance()
+		}
+		return
+	}
+
 	// Level end screen: only restart is accepted.
 	if app.levelEnded() {
 		if app.restartPressed() {
@@ -857,7 +871,7 @@ func (app *App) update(dt float64) {
 	if app.console != nil && app.console.Open {
 		return
 	}
-	if app.menuActive() {
+	if app.menuActive() || app.campaignBlocking() {
 		return
 	}
 	if app.levelEnded() {
@@ -1322,6 +1336,12 @@ func (app *App) mouseButtonCallback(w *glfw.Window, button glfw.MouseButton, act
 	if action == glfw.Press && !app.menuActive() {
 		app.swallowClick = false
 	}
+	if app.campaignBlocking() && !app.menuActive() && action == glfw.Press {
+		if app.cs.phase != phaseLoading {
+			app.campaignAdvance()
+		}
+		return
+	}
 	if app.focusPaused && action == glfw.Press {
 		app.focusPaused, app.paused, app.mouseInit = false, false, false
 		w.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
@@ -1505,6 +1525,23 @@ func (app *App) consoleCommand(cmd string, args []string) string {
 		}
 		return fmt.Sprintf("queued %d menu input(s)", len(args))
 
+	case "level":
+		// level <id> [play]: start a campaign level (intro screen unless "play").
+		if app.cs == nil {
+			return "level needs CAMPAIGN yes"
+		}
+		id := systems.ArgString(args, 0)
+		if _, ok := activeManifest.FindLevel(id); !ok {
+			return "unknown level: " + id
+		}
+		app.closeMenu()
+		app.cs.p.Start(id)
+		app.campaignStart(id, progress.State{})
+		if systems.ArgString(args, 1) == "play" {
+			app.campaignAdvance()
+		}
+		return "level " + id
+
 	case "focus":
 		app.onFocusChange(systems.ArgString(args, 0) != "off")
 		return "focus " + systems.ArgString(args, 0)
@@ -1534,4 +1571,14 @@ func (app *App) consoleCommand(cmd string, args []string) string {
 	default:
 		return fmt.Sprintf("unknown: %s", cmd)
 	}
+}
+
+// advancePressed reports a fresh press of Enter, keypad Enter or Space.
+func (app *App) advancePressed() bool {
+	down := app.window.GetKey(glfw.KeyEnter) == glfw.Press ||
+		app.window.GetKey(glfw.KeyKPEnter) == glfw.Press ||
+		app.window.GetKey(glfw.KeySpace) == glfw.Press
+	pressed := down && !app.advPrev
+	app.advPrev = down
+	return pressed
 }
