@@ -378,3 +378,67 @@ func TestJumpOntoLedge(t *testing.T) {
 		t.Fatalf("a short drop onto a ledge is no fall: %v", p.LastFall)
 	}
 }
+
+// walk moves a player like the host does (per-axis collision, then ground
+// follow and vertical update) for n frames heading along +x.
+func walk(m *MapData, p *PlayerState, n int, jumpAt int) (maxFall float64) {
+	const dt = 1.0 / 60
+	for i := 0; i < n; i++ {
+		if i == jumpAt {
+			p.Jump()
+		}
+		nx := p.X + 3*dt
+		if m.CanOccupy(nx, p.Y, 0.15, p.Feet(), MaxStepUp, p.Headroom()) {
+			p.X = nx
+		}
+		f, _ := m.Support(p.X, p.Y, 0.15)
+		p.SetGround(f)
+		p.UpdateVertical(dt)
+		maxFall = math.Max(maxFall, p.LastFall)
+		p.LastFall = 0
+	}
+	return maxFall
+}
+
+func TestWalkUpStairsBlockedByWallAndFallIntoPit(t *testing.T) {
+	m := NewMapData([][]MapCell{make([]MapCell, 12)})
+	m.SetHeights(3)
+	for x, h := range []float64{0, 0.25, 0.5, 0.75, 1.0, 1.0, -0.5, -0.5, 0.3, 1.5, 1.5, 1.5} {
+		m.SetFloor(x, 0, h)
+	}
+	p := NewPlayerState(0.5, 0.5, 0)
+	walk(m, p, 96, -1)
+	if p.Ground != 1.0 || p.X < 5 {
+		t.Fatalf("player should have climbed the stairs to the 1.0 platform, at x=%.2f ground %.2f", p.X, p.Ground)
+	}
+	fall := walk(m, p, 60, -1)
+	if math.Abs(fall-1.5) > 0.05 {
+		t.Fatalf("walking off the platform into the pit should fall 1.5, got %.2f", fall)
+	}
+	if p.X > 8-0.15+1e-9 {
+		t.Fatalf("0.8 rise out of the pit must block, player at x=%.2f", p.X)
+	}
+	// Jumping (peak 0.45) does not clear 0.8 either.
+	walk(m, p, 60, 0)
+	if p.X > 8 {
+		t.Fatal("jump cleared a 0.8 wall")
+	}
+}
+
+func TestJumpClimbsLedgeThatWalkingCannot(t *testing.T) {
+	m := NewMapData([][]MapCell{make([]MapCell, 6)})
+	m.SetHeights(2)
+	m.SetFloor(3, 0, 0.4)
+	m.SetFloor(4, 0, 0.4)
+	m.SetFloor(5, 0, 0.4)
+	p := NewPlayerState(0.5, 0.5, 0)
+	walk(m, p, 60, -1)
+	if p.X > 3 {
+		t.Fatal("a 0.4 ledge must block walking")
+	}
+	p.X = 2.4
+	walk(m, p, 40, 0)
+	if p.Ground != 0.4 || p.X < 3.2 {
+		t.Fatalf("jumping should land on the ledge: x=%.2f ground=%.2f", p.X, p.Ground)
+	}
+}

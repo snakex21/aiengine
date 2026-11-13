@@ -1,0 +1,61 @@
+# maps/testy/wysokosci.aie - pokaz wysokosci podlogi i sufitu (silnik, etap 1)
+# Wczytanie z konsoli (~): map maps/testy/wysokosci.aie
+#
+# Wysoka sala ze schodami na balkon, komnata z przepascia i mostem,
+# korytarz z kopcem i niskim tunelem (trzeba kucnac).
+
+MAP wysokosci
+PLAYER_ANGLE 270
+PLAYER_HP 100
+FLOOR_COLOR #1E1A24
+CEILING_COLOR #0C0B14
+HEIGHT_STEP 0.125
+CEILING_HEIGHT 1.25
+STEP_WALL S
+FALL_DAMAGE 40
+
+GRID
+W W W W W W W W W W W W W W W W W W W W
+W . . . . . . . . W . . . . . . . . . W
+W . . . . . . . . W . . . . . . . . . W
+W . . . . . . . . . . . . . . . . . . W
+W . . . . . . . . W . . . . . . . . . W
+W . . . . . . . . W . . . . . . . . . W
+W W W . W W W W W W W W W . W W W W W W
+W . . . . . . . . . . . . . . . . . . W
+W . P . . . . . . . . . . . . . . . . W
+W . . . . . . . . . . . . . . . . . . W
+W W W W W W W W W W W W W W W W W W W W
+
+FLOOR_GRID
+. . . . . . . . . . . . . . . . . . . .
+. . 8 8 8 8 8 8 . . . . . . . . . . . .
+. . 6 6 6 6 6 6 . . . . h h h h h . . .
+. . 4 4 4 4 4 4 . . . . . . . . . . . .
+. . 2 2 2 2 2 2 . . . . h h h h h . . .
+. . . . . . . . . . . . h f d b . . . .
+. . . . . . . . . . . . . . . . . . . .
+. . . . . 2 4 4 2 . . . . . . . . . . .
+. . . . . 2 4 4 2 . . . . . . . . . . .
+. . . . . 2 4 4 2 . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . .
+
+CEILING_GRID
+. . . . . . . . . . . . . . . . . . . .
+. K K K K K K K K . . . . . . . . . . .
+. K K K K K K K K . . . . . . . . . . .
+. K K K K K K K K . . . . . . . . . . .
+. K K K K K K K K . . . . . . . . . . .
+. K K K K K K K K . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . 4 4 4 . . .
+. . . . . . . . . . . . . . 4 4 4 . . .
+. . . . . . . . . . . . . . 4 4 4 . . .
+. . . . . . . . . . . . . . . . . . . .
+
+PLACE item crystal k1 5.5 0 1.5 bob=0.15
+PLACE item crystal k2 14.5 0 4.5 bob=0.15
+PLACE item potion m1 17.5 0 8.5 scale=0.35
+PLACE enemy straznik s1 4.5 0 1.5 hp=50 speed=0.9 damage=10 sight=6 behavior=guard
+PLACE enemy straznik s2 12.5 0 4.5 hp=50 speed=0.9 damage=10 sight=5
+PLACE enemy straznik s3 11.5 0 8.5 hp=50 speed=0.9 damage=10 sight=6

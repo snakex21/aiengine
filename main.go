@@ -923,13 +923,14 @@ func (app *App) update(dt float64) {
 	// Predictive collision per-axis (wall sliding). Noclip skips walls.
 	noclip := app.console != nil && app.console.CheatEnabled(systems.CheatNoclip)
 	newX := app.player.X + moveX
-	if noclip || !app.isWallAt(newX, app.player.Y) {
+	if noclip || !app.playerBlocked(newX, app.player.Y) {
 		app.player.X = newX
 	}
 	newY := app.player.Y + moveY
-	if noclip || !app.isWallAt(app.player.X, newY) {
+	if noclip || !app.playerBlocked(app.player.X, newY) {
 		app.player.Y = newY
 	}
+	app.updatePlayerGround()
 
 	// Stance: hold crouch to crouch; toggle prone with its key. Jumping clears
 	// any non-standing stance.
@@ -941,9 +942,12 @@ func (app *App) update(dt float64) {
 		}
 	} else if app.inputManager.IsPressed("crouch") {
 		app.player.SetStance(renderer.StanceCrouch)
-	} else if app.player.Stance == renderer.StanceCrouch {
-		// Crouch released → stand back up.
+	} else if app.player.Stance == renderer.StanceCrouch && app.canStandUp() {
+		// Crouch released → stand back up (not under a low ceiling).
 		app.player.SetStance(renderer.StanceStand)
+	}
+	if app.player.Stance == renderer.StanceStand && !app.canStandUp() {
+		app.player.SetStance(renderer.StanceCrouch)
 	}
 
 	// Vertical movement: jumping and gravity.
@@ -954,6 +958,7 @@ func (app *App) update(dt float64) {
 		app.player.Jump()
 	}
 	app.player.UpdateVertical(dt)
+	app.applyFallDamage()
 
 	// Mouse look.
 	cx, cy := app.window.GetCursorPos()
@@ -983,7 +988,7 @@ func (app *App) update(dt float64) {
 	}
 	app.prevMouseX = cx
 	app.prevMouseY = cy
-	app.scriptEngine.SetPlayerPosition(app.player.X, app.player.Y, app.player.Z)
+	app.scriptEngine.SetPlayerPosition(app.player.X, app.player.Y, app.player.Feet())
 
 	moving := moveX != 0 || moveY != 0
 	app.updatePlayerAnimation(dt, moving)
@@ -1150,7 +1155,7 @@ func (app *App) shootDemoEnemy() {
 		if math.Abs(angle) > 0.18 {
 			continue
 		}
-		if app.hasWallBetween(app.player.X, app.player.Y, enemy.Sprite.X, enemy.Sprite.Y) {
+		if !app.raycaster.Map.SightClear(app.player.X, app.player.Y, app.player.EyeZ(), enemy.Sprite.X, enemy.Sprite.Y, app.enemyAimHeight(enemy.Sprite)) {
 			continue
 		}
 		bestDist = dist
@@ -1493,8 +1498,7 @@ func (app *App) consoleCommand(cmd string, args []string) string {
 	case "tp":
 		x := systems.ArgFloat(args, 0, app.player.X)
 		y := systems.ArgFloat(args, 1, app.player.Y)
-		app.player.X = x
-		app.player.Y = y
+		app.placePlayer(x, y)
 		if len(args) > 2 { // optional facing in degrees (0 = +x, 90 = +y)
 			app.player.Angle = systems.ArgFloat(args, 2, 0) * math.Pi / 180
 		}
@@ -1507,9 +1511,22 @@ func (app *App) consoleCommand(cmd string, args []string) string {
 	case "map":
 		name := systems.ArgString(args, 0)
 		if name == "" {
-			return "map <name>"
+			return "map <file.aie>"
 		}
-		return fmt.Sprintf("map change to '%s' (not yet implemented)", name)
+		if app.game == nil {
+			return "map needs RUNTIME level"
+		}
+		// Load any map file of the project (test maps outside the campaign).
+		lv, err := loadLevelFile(name)
+		if err != nil {
+			return err.Error()
+		}
+		app.closeMenu()
+		app.ms.currentLevel = parser.LevelEntry{ID: lv.Name, Path: name, Title: lv.Name}
+		if err := app.startLevel(lv); err != nil {
+			return err.Error()
+		}
+		return "map " + name
 
 	case "lua":
 		if app.luaBridge == nil {

@@ -123,7 +123,7 @@ func (app *App) onMenuScreenChanged() {
 		app.audioSys.PlayMusicTrack(s.Music)
 	}
 	if s.Background.Kind == "map" && len(s.Background.Args) >= 2 {
-		app.player.X, app.player.Y = s.Background.Args[0], s.Background.Args[1]
+		app.placePlayer(s.Background.Args[0], s.Background.Args[1])
 		if len(s.Background.Args) >= 3 {
 			app.player.Angle = s.Background.Args[2] * math.Pi / 180
 		}

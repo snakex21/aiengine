@@ -68,6 +68,7 @@ func (app *App) startLevel(lv *level.Level) error {
 	}
 	app.raycaster.Map = lv.Map
 	app.raycaster.Player = app.player
+	app.placePlayer(lv.SpawnX, lv.SpawnY)
 	app.raycaster.OverlayTitle = ""
 	app.raycaster.OverlaySubtitle = ""
 	app.applyLevelTextures(lv)
@@ -85,11 +86,11 @@ func (app *App) startLevel(lv *level.Level) error {
 	if hp, err := strconv.ParseFloat(lv.Props["PLAYER_HP"], 64); err == nil && hp > 0 {
 		app.scriptEngine.PlayerHP, app.scriptEngine.PlayerMaxHP = hp, hp
 	}
-	app.scriptEngine.SetPlayerPosition(app.player.X, app.player.Y, 0)
+	app.scriptEngine.SetPlayerPosition(app.player.X, app.player.Y, app.player.Feet())
 
 	g := &levelGame{lv: lv, sprites: make(map[string]*levelSprite)}
 	g.session = level.NewSession(lv, app.scriptEngine)
-	g.session.Exec.OnTeleportPlayer = func(x, y, z float64) { app.player.X, app.player.Y = x, z }
+	g.session.Exec.OnTeleportPlayer = func(x, y, z float64) { app.placePlayer(x, z) }
 	app.scriptEngine.OnRestart = func() { app.restartRequested = true }
 	app.scriptEngine.OnSpawn = func(id, typ string, x, y float64) {
 		params := map[string]string{}
@@ -228,7 +229,7 @@ func (app *App) updateLevelEnemy(e *DemoEnemy, dt float64) {
 	f := e.Fighter
 	f.X, f.Y = e.Sprite.X, e.Sprite.Y
 	dmg := f.Step(app.game.lv, app.player.X, app.player.Y, dt, func(x, y float64) bool {
-		return app.isWallAt(x, y) || app.enemyBlocked(e, x, y)
+		return app.enemyBodyBlocked(e.Sprite.X, e.Sprite.Y, x, y) || app.enemyBlocked(e, x, y)
 	})
 	e.Sprite.X, e.Sprite.Y = f.X, f.Y
 	switch f.State {
