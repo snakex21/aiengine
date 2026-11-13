@@ -70,6 +70,7 @@ func (app *App) startLevel(lv *level.Level) error {
 	app.raycaster.Player = app.player
 	app.raycaster.OverlayTitle = ""
 	app.raycaster.OverlaySubtitle = ""
+	app.applyLevelTextures(lv)
 	if c, ok := parseHexColor(lv.Props["FLOOR_COLOR"]); ok {
 		app.raycaster.FloorColor = c
 	}
@@ -306,4 +307,31 @@ func (app *App) saveScreenshot(path string) error {
 	}
 	log.Printf("Screenshot saved: %s", path)
 	return nil
+}
+
+// applyLevelTextures loads the project texture set (assets/textures) and then
+// the level's own set (MAP property TEXTURES <dir>): walls brick/stone/metal/
+// wood plus optional floor/ceiling. Overrides from the previous level are
+// undone first.
+func (app *App) applyLevelTextures(lv *level.Level) {
+	tm := app.texManager
+	tm.ResetOverrides()
+	dirs := []string{projectPath("assets", "textures")}
+	if d := strings.TrimSpace(lv.Props["TEXTURES"]); d != "" {
+		dirs = append(dirs, projectPath(filepath.FromSlash(d)))
+	}
+	for _, d := range dirs {
+		if names, err := tm.LoadTextureSet(d, renderer.SurfaceTextureNames); err != nil {
+			log.Printf("Warning: textures %s: %v", d, err)
+		} else if len(names) > 0 {
+			log.Printf("[Level] textures from %s: %v", d, names)
+		}
+	}
+	app.raycaster.FloorTexture, app.raycaster.CeilingTexture = "", ""
+	if tm.Get("floor") != nil {
+		app.raycaster.FloorTexture = "floor"
+	}
+	if tm.Get("ceiling") != nil {
+		app.raycaster.CeilingTexture = "ceiling"
+	}
 }

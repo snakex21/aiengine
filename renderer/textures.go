@@ -32,6 +32,7 @@ type Texture2D struct {
 // TextureManager owns all loaded/generated textures, keyed by name.
 type TextureManager struct {
 	textures map[string]*Texture2D
+	baseline map[string]*Texture2D // originals of textures replaced by LoadTextureSet
 }
 
 // NewTextureManager creates an empty texture manager.
@@ -578,30 +579,43 @@ func (tm *TextureManager) GenerateDefaultTextures() error {
 // WallTextureNames are the textures the raycaster uses for wall cell types.
 var WallTextureNames = []string{"brick", "stone", "metal", "wood"}
 
+// SurfaceTextureNames are the names a texture set may provide: the four
+// wall textures plus "floor" and "ceiling" (used by levels).
+var SurfaceTextureNames = []string{"brick", "stone", "metal", "wood", "floor", "ceiling"}
+
 // LoadWallOverrides replaces generated wall textures with <dir>/<name>.png
-// where present. Images must be square with a power-of-two size (the
-// raycaster wraps texture rows with a bit mask). Returns the names loaded.
+// where present (see LoadTextureSet).
 func (tm *TextureManager) LoadWallOverrides(dir string) ([]string, error) {
+	return tm.LoadTextureSet(dir, WallTextureNames)
+}
+
+// LoadTextureSet loads <dir>/<name>.png for each name that exists, replacing
+// the current texture of that name. Images must be square with a
+// power-of-two size (the raycaster wraps texture rows with a bit mask).
+// The first replacement of a name remembers the original so ResetOverrides
+// can restore it. Returns the names loaded.
+func (tm *TextureManager) LoadTextureSet(dir string, names []string) ([]string, error) {
 	var loaded []string
-	for _, name := range WallTextureNames {
+	for _, name := range names {
 		path := filepath.Join(dir, name+".png")
 		if _, err := os.Stat(path); err != nil {
 			continue
 		}
-		f, err := os.Open(path)
+		img, err := decodePNGFile(path)
 		if err != nil {
 			return loaded, err
 		}
-		img, err := png.Decode(f)
-		f.Close()
-		if err != nil {
-			return loaded, fmt.Errorf("decoding %s: %w", path, err)
-		}
 		b := img.Bounds()
 		if b.Dx() != b.Dy() || b.Dy()&(b.Dy()-1) != 0 {
-			return loaded, fmt.Errorf("%s: wall textures must be square power-of-two, got %dx%d", path, b.Dx(), b.Dy())
+			return loaded, fmt.Errorf("%s: surface textures must be square power-of-two, got %dx%d", path, b.Dx(), b.Dy())
 		}
-		if old := tm.textures[name]; old != nil {
+		if tm.baseline == nil {
+			tm.baseline = map[string]*Texture2D{}
+		}
+		old := tm.textures[name]
+		if _, saved := tm.baseline[name]; !saved {
+			tm.baseline[name] = old // may be nil: the name did not exist
+		} else if old != nil && old != tm.baseline[name] {
 			gl.DeleteTextures(1, &old.ID)
 		}
 		if _, err := tm.CreateFromImage(name, img); err != nil {
@@ -610,6 +624,35 @@ func (tm *TextureManager) LoadWallOverrides(dir string) ([]string, error) {
 		loaded = append(loaded, name)
 	}
 	return loaded, nil
+}
+
+// ResetOverrides restores every texture replaced by LoadTextureSet to its
+// original (generated) version, so the next level starts from a clean set.
+func (tm *TextureManager) ResetOverrides() {
+	for name, orig := range tm.baseline {
+		if cur := tm.textures[name]; cur != nil && cur != orig {
+			gl.DeleteTextures(1, &cur.ID)
+		}
+		if orig == nil {
+			delete(tm.textures, name)
+		} else {
+			tm.textures[name] = orig
+		}
+	}
+	tm.baseline = nil
+}
+
+func decodePNGFile(path string) (image.Image, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	img, err := png.Decode(f)
+	if err != nil {
+		return nil, fmt.Errorf("decoding %s: %w", path, err)
+	}
+	return img, nil
 }
 
 // Delete releases all textures.
