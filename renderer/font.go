@@ -3,7 +3,8 @@
 
 package renderer
 
-// fontChar holds a 5×7 glyph as 7 rows of 5 bits (row 0 = top).
+// fontChar holds a 5×7 glyph as 7 rows; each row uses bits 5..1 (bit 5 =
+// leftmost column, bit 0 unused), row 0 = top.
 type fontChar [7]byte
 
 // consoleFont provides a minimal character set for cheat commands.
@@ -68,6 +69,16 @@ func init() {
 	consoleFont[']'] = fontChar{0x1C, 0x04, 0x04, 0x04, 0x04, 0x04, 0x1C}
 	consoleFont['?'] = fontChar{0x1C, 0x22, 0x02, 0x04, 0x08, 0x00, 0x08}
 	consoleFont['!'] = fontChar{0x08, 0x08, 0x08, 0x08, 0x08, 0x00, 0x08}
+	consoleFont[','] = fontChar{0x00, 0x00, 0x00, 0x00, 0x0C, 0x04, 0x08}
+	consoleFont['\''] = fontChar{0x08, 0x08, 0x10, 0x00, 0x00, 0x00, 0x00}
+	consoleFont['"'] = fontChar{0x14, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00}
+	consoleFont['('] = fontChar{0x04, 0x08, 0x10, 0x10, 0x10, 0x08, 0x04}
+	consoleFont[')'] = fontChar{0x10, 0x08, 0x04, 0x04, 0x04, 0x08, 0x10}
+	consoleFont['+'] = fontChar{0x00, 0x08, 0x08, 0x3E, 0x08, 0x08, 0x00}
+	consoleFont['='] = fontChar{0x00, 0x00, 0x3E, 0x00, 0x3E, 0x00, 0x00}
+	consoleFont['*'] = fontChar{0x00, 0x2A, 0x1C, 0x3E, 0x1C, 0x2A, 0x00}
+	consoleFont['%'] = fontChar{0x30, 0x32, 0x04, 0x08, 0x10, 0x26, 0x06}
+	consoleFont['#'] = fontChar{0x14, 0x14, 0x3E, 0x14, 0x3E, 0x14, 0x14}
 }
 
 // FontW / FontH are the character cell dimensions.
@@ -87,10 +98,10 @@ func drawChar(pixels []uint8, sw int, x, y int, ch byte, color [4]uint8) {
 		return
 	}
 	g := consoleFont[ch]
-	for row := 0; row < FontH; row++ {
+	for row := 0; row < len(g); row++ { // glyphs have 7 rows; FontH (8) includes spacing
 		bits := g[row]
 		for col := 0; col < FontW-1; col++ {
-			if bits&(1<<(4-col)) != 0 {
+			if bits&(1<<(5-col)) != 0 {
 				px := x + col
 				py := y + row
 				if px >= 0 && px < sw && py >= 0 {
@@ -100,6 +111,57 @@ func drawChar(pixels []uint8, sw int, x, y int, ch byte, color [4]uint8) {
 						pixels[idx+1] = color[1]
 						pixels[idx+2] = color[2]
 						pixels[idx+3] = color[3]
+					}
+				}
+			}
+		}
+	}
+}
+
+// TextWidth returns the pixel width of text drawn at the given scale.
+func TextWidth(text string, scale int) int {
+	if scale < 1 {
+		scale = 1
+	}
+	return len(text) * FontW * scale
+}
+
+// DrawTextScaled draws text with each font pixel enlarged to scale×scale and a
+// one-step dark drop shadow, clipped to the screen. Used for HUD text.
+func DrawTextScaled(pixels []uint8, sw, sh, px, py int, text string, color [4]uint8, scale int) {
+	if scale < 1 {
+		scale = 1
+	}
+	shadow := [4]uint8{0, 0, 0, 255}
+	drawTextScaledRaw(pixels, sw, sh, px+scale, py+scale, text, shadow, scale)
+	drawTextScaledRaw(pixels, sw, sh, px, py, text, color, scale)
+}
+
+func drawTextScaledRaw(pixels []uint8, sw, sh, px, py int, text string, color [4]uint8, scale int) {
+	for i := 0; i < len(text); i++ {
+		ch := text[i]
+		if int(ch) >= len(consoleFont) {
+			continue
+		}
+		g := consoleFont[ch]
+		ox := px + i*FontW*scale
+		for row := 0; row < 7; row++ {
+			for col := 0; col < FontW-1; col++ {
+				if g[row]&(1<<(5-col)) == 0 {
+					continue
+				}
+				for dy := 0; dy < scale; dy++ {
+					y := py + row*scale + dy
+					if y < 0 || y >= sh {
+						continue
+					}
+					for dx := 0; dx < scale; dx++ {
+						x := ox + col*scale + dx
+						if x < 0 || x >= sw {
+							continue
+						}
+						idx := (y*sw + x) * 4
+						pixels[idx], pixels[idx+1], pixels[idx+2], pixels[idx+3] = color[0], color[1], color[2], color[3]
 					}
 				}
 			}
