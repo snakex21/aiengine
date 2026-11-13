@@ -3,6 +3,8 @@
 
 package renderer
 
+import "unicode/utf8"
+
 // fontChar holds a 5×7 glyph as 7 rows; each row uses bits 5..1 (bit 5 =
 // leftmost column, bit 0 unused), row 0 = top.
 type fontChar [7]byte
@@ -85,37 +87,95 @@ func init() {
 const FontW = 6
 const FontH = 8
 
-// DrawConsoleString renders a string onto the pixel buffer at (px,py).
-// Color must be a 4‑element array [R,G,B,A].
-func DrawConsoleString(pixels []uint8, screenW int, px, py int, text string, color [4]uint8) {
-	for i, ch := range text {
-		drawChar(pixels, screenW, px+i*FontW, py, byte(ch), color)
+// FontAccentRows is how far accents (acute, dot) reach above a glyph's top row
+// and ogonek/descenders below its 7th row. Leave this much room between lines
+// of text that may contain Polish letters.
+const FontAccentRows = 2
+
+// glyph is a character with room for marks: rows 0-1 lie above the cap line
+// (accents), rows 2-8 are the 7-row body, rows 9-10 are below (ogonek).
+// Each row uses bits 5..1 like fontChar.
+type glyph [11]byte
+
+// Polish diacritics are composed from the base letter (the font is upper-case
+// only, so lower-case letters map to the same shapes) plus a mark.
+var (
+	markAcute  = [2]byte{0x04, 0x08} // short stroke rising to the right
+	markDot    = [2]byte{0x08, 0x00} // single dot, one row of air
+	markOgonek = [2]byte{0x04, 0x02} // hook under the right side
+)
+
+var extraGlyphs = map[rune]glyph{}
+
+func init() {
+	above := func(base byte, mark [2]byte) glyph {
+		var g glyph
+		g[0], g[1] = mark[0], mark[1]
+		copy(g[2:9], consoleFont[base][:])
+		return g
+	}
+	below := func(base byte, mark [2]byte) glyph {
+		var g glyph
+		copy(g[2:9], consoleFont[base][:])
+		g[9], g[10] = mark[0], mark[1]
+		return g
+	}
+	var lStroke glyph // L with a diagonal stroke through the stem
+	copy(lStroke[2:9], []byte{0x20, 0x20, 0x28, 0x30, 0x20, 0x20, 0x3E})
+
+	pairs := map[[2]rune]glyph{
+		{'Ą', 'ą'}: below('A', markOgonek),
+		{'Ć', 'ć'}: above('C', markAcute),
+		{'Ę', 'ę'}: below('E', markOgonek),
+		{'Ł', 'ł'}: lStroke,
+		{'Ń', 'ń'}: above('N', markAcute),
+		{'Ó', 'ó'}: above('O', markAcute),
+		{'Ś', 'ś'}: above('S', markAcute),
+		{'Ź', 'ź'}: above('Z', markAcute),
+		{'Ż', 'ż'}: above('Z', markDot),
+	}
+	for runes, g := range pairs {
+		extraGlyphs[runes[0]] = g
+		extraGlyphs[runes[1]] = g
 	}
 }
 
-func drawChar(pixels []uint8, sw int, x, y int, ch byte, color [4]uint8) {
-	if int(ch) >= len(consoleFont) {
-		return
+// lookupGlyph returns the glyph for r; unknown runes report false.
+func lookupGlyph(r rune) (glyph, bool) {
+	if r >= 0 && r < rune(len(consoleFont)) {
+		var g glyph
+		copy(g[2:9], consoleFont[r][:])
+		return g, true
 	}
-	g := consoleFont[ch]
-	for row := 0; row < len(g); row++ { // glyphs have 7 rows; FontH (8) includes spacing
-		bits := g[row]
-		for col := 0; col < FontW-1; col++ {
-			if bits&(1<<(5-col)) != 0 {
-				px := x + col
-				py := y + row
-				if px >= 0 && px < sw && py >= 0 {
-					idx := (py*sw + px) * 4
-					if idx+3 < len(pixels) {
-						pixels[idx] = color[0]
-						pixels[idx+1] = color[1]
-						pixels[idx+2] = color[2]
-						pixels[idx+3] = color[3]
-					}
-				}
-			}
+	g, ok := extraGlyphs[r]
+	return g, ok
+}
+
+// HasGlyph reports whether the font can draw r (space counts as drawable).
+func HasGlyph(r rune) bool {
+	g, ok := lookupGlyph(r)
+	if !ok {
+		return false
+	}
+	if r == ' ' {
+		return true
+	}
+	for _, row := range g {
+		if row != 0 {
+			return true
 		}
 	}
+	return false
+}
+
+// DrawConsoleString renders a string onto the pixel buffer at (px,py).
+// Color must be a 4‑element array [R,G,B,A]. Text is UTF-8.
+func DrawConsoleString(pixels []uint8, screenW int, px, py int, text string, color [4]uint8) {
+	sh := 0
+	if screenW > 0 {
+		sh = len(pixels) / 4 / screenW
+	}
+	drawTextScaledRaw(pixels, screenW, sh, px, py, text, color, 1)
 }
 
 // TextWidth returns the pixel width of text drawn at the given scale.
@@ -123,11 +183,12 @@ func TextWidth(text string, scale int) int {
 	if scale < 1 {
 		scale = 1
 	}
-	return len(text) * FontW * scale
+	return utf8.RuneCountInString(text) * FontW * scale
 }
 
 // DrawTextScaled draws text with each font pixel enlarged to scale×scale and a
-// one-step dark drop shadow, clipped to the screen. Used for HUD text.
+// one-step dark drop shadow, clipped to the screen. py is the top of the
+// glyph body; accents extend FontAccentRows*scale above and below it.
 func DrawTextScaled(pixels []uint8, sw, sh, px, py int, text string, color [4]uint8, scale int) {
 	if scale < 1 {
 		scale = 1
@@ -138,20 +199,25 @@ func DrawTextScaled(pixels []uint8, sw, sh, px, py int, text string, color [4]ui
 }
 
 func drawTextScaledRaw(pixels []uint8, sw, sh, px, py int, text string, color [4]uint8, scale int) {
-	for i := 0; i < len(text); i++ {
-		ch := text[i]
-		if int(ch) >= len(consoleFont) {
+	i := 0
+	for _, r := range text {
+		g, ok := lookupGlyph(r)
+		ox := px + i*FontW*scale
+		i++
+		if !ok {
 			continue
 		}
-		g := consoleFont[ch]
-		ox := px + i*FontW*scale
-		for row := 0; row < 7; row++ {
+		for row := 0; row < len(g); row++ {
+			bits := g[row]
+			if bits == 0 {
+				continue
+			}
 			for col := 0; col < FontW-1; col++ {
-				if g[row]&(1<<(5-col)) == 0 {
+				if bits&(1<<(5-col)) == 0 {
 					continue
 				}
 				for dy := 0; dy < scale; dy++ {
-					y := py + row*scale + dy
+					y := py + (row-FontAccentRows)*scale + dy
 					if y < 0 || y >= sh {
 						continue
 					}
