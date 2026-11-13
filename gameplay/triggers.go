@@ -6,6 +6,7 @@
 package gameplay
 
 import (
+	"fmt"
 	"log"
 	"strings"
 
@@ -49,6 +50,8 @@ type TriggerContext struct {
 	ItemPicked     map[string]bool
 	ButtonPressed  map[string]bool
 	EnemyDead      map[string]bool // specific enemy death tracking
+	ZonesInside    map[string]bool // zone id → player currently inside
+	ZonesVisited   map[string]bool // zone id → player has been inside at least once
 }
 
 // Evaluate checks if all conditions in a trigger are satisfied.
@@ -74,13 +77,26 @@ func evaluateCondition(cond *TriggerCondition, ctx *TriggerContext) bool {
 		return ctx.AllEnemiesDead
 
 	case "player_enters":
-		// Stub: zone entry detection requires zone system.
-		log.Printf("[Trigger] player_enters %s (stub)", cond.Param)
-		return false
+		// True while the player is inside the zone (zone state is fed by the
+		// level runtime via SetZoneInside).
+		return ctx.ZonesInside[cond.Param]
 
 	case "player_exits":
-		log.Printf("[Trigger] player_exits %s (stub)", cond.Param)
-		return false
+		// True once the player has been inside the zone and is now outside.
+		return ctx.ZonesVisited[cond.Param] && !ctx.ZonesInside[cond.Param]
+
+	case "var_equals":
+		// CONDITION var_equals <name> <value>
+		v, ok := ctx.Vars[cond.Param]
+		return ok && fmt.Sprint(v) == cond.Param2
+
+	case "var_at_least":
+		// CONDITION var_at_least <name> <number>
+		v, ok := ctx.Vars[cond.Param]
+		if !ok {
+			return false
+		}
+		return parseFloat(fmt.Sprint(v)) >= parseFloat(cond.Param2)
 
 	case "item_picked":
 		id := cond.Param
@@ -256,6 +272,8 @@ func NewTriggerRegistry() *TriggerRegistry {
 			ItemPicked:    make(map[string]bool),
 			ButtonPressed: make(map[string]bool),
 			EnemyDead:     make(map[string]bool),
+			ZonesInside:   make(map[string]bool),
+			ZonesVisited:  make(map[string]bool),
 		},
 	}
 }
@@ -318,6 +336,30 @@ func (tr *TriggerRegistry) SetVar(name string, value interface{}) {
 // MarkEnemyDead records a specific enemy death for trigger conditions.
 func (tr *TriggerRegistry) MarkEnemyDead(id string) {
 	tr.context.EnemyDead[id] = true
+}
+
+// MarkItemPicked records an item pickup for item_picked conditions.
+func (tr *TriggerRegistry) MarkItemPicked(id string) {
+	tr.context.ItemPicked[id] = true
+}
+
+// SetZoneInside records whether the player is inside a zone, for
+// player_enters / player_exits conditions.
+func (tr *TriggerRegistry) SetZoneInside(id string, inside bool) {
+	tr.context.ZonesInside[id] = inside
+	if inside {
+		tr.context.ZonesVisited[id] = true
+	}
+}
+
+// SetTimer stores the remaining seconds of a named timer for timer_elapsed.
+func (tr *TriggerRegistry) SetTimer(name string, remaining float64) {
+	tr.context.Timers[name] = remaining
+}
+
+// Count returns the number of registered triggers.
+func (tr *TriggerRegistry) Count() int {
+	return len(tr.triggers)
 }
 
 // Tick evaluates all triggers and executes any whose conditions are met.
