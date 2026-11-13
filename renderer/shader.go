@@ -192,7 +192,9 @@ uniform float uShade;
 
 void main() {
     vec4 texColor = texture(uTexture, TexCoord);
-    if (texColor.a < 0.1) discard;
+    // Only skip fully transparent texels: a 0.1 cut-off chopped the soft
+    // outer part of glows/shadows into hard-edged, truncated shapes.
+    if (texColor.a < 0.004) discard;
     FragColor = vec4(texColor.rgb * uShade, texColor.a * uAlpha);
 }
 ` + "\x00"

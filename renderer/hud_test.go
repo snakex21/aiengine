@@ -91,3 +91,19 @@ func TestFillRectClips(t *testing.T) {
 	}
 	FillRect(buf, 4, 4, 9, 9, 2, 2, [4]uint8{9, 9, 9, 9}) // fully outside: no panic
 }
+
+func TestEdgeAlphaFindsClippedArt(t *testing.T) {
+	tex := &Texture2D{Width: 4, Height: 4, Pixels: make([]uint8, 4*4*4)}
+	tex.Pixels[(2*4+1)*4+3] = 255 // interior pixel only
+	if EdgeAlpha(tex) != 0 {
+		t.Fatal("interior pixel reported as edge")
+	}
+	tex.Pixels[(3*4+1)*4+3] = 255 // bottom row: allowed for weapon art
+	if EdgeAlpha(tex) != 0 {
+		t.Fatal("bottom edge must be ignored")
+	}
+	tex.Pixels[(0*4+2)*4+3] = 120 // top row glow
+	if EdgeAlpha(tex) != 120 {
+		t.Fatalf("EdgeAlpha = %d", EdgeAlpha(tex))
+	}
+}

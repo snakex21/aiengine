@@ -649,9 +649,13 @@ func (app *App) loadPlayerAnimationFiles(dir string) bool {
 			if _, err := os.Stat(path); err != nil {
 				return false
 			}
-			if _, err := app.texManager.LoadFromFile(texName, path); err != nil {
+			tex, err := app.texManager.LoadFromFile(texName, path)
+			if err != nil {
 				log.Printf("Warning: could not load player animation frame %s: %v", path, err)
 				return false
+			}
+			if a := renderer.EdgeAlpha(tex); a > 8 {
+				log.Printf("Warning: %s: visible pixels (alpha %d) touch the frame edge - the art (e.g. a glow) will look cut off; add transparent margin", path, a)
 			}
 		}
 	}

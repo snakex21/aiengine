@@ -707,3 +707,22 @@ func clampU8(v int) uint8 {
 	}
 	return uint8(v)
 }
+
+// EdgeAlpha returns the highest alpha found on the top, left and right
+// borders of a texture (the bottom is excluded: first-person weapon art is
+// meant to be cut by the screen bottom). Non-zero values mean visible pixels
+// touch the frame edge, i.e. the artwork (often a glow) is likely clipped.
+func EdgeAlpha(t *Texture2D) uint8 {
+	if t == nil || len(t.Pixels) == 0 {
+		return 0
+	}
+	w, h := int(t.Width), int(t.Height)
+	var m uint8
+	for x := 0; x < w; x++ {
+		m = max(m, t.Pixels[x*4+3])
+	}
+	for y := 0; y < h; y++ {
+		m = max(m, t.Pixels[(y*w)*4+3], t.Pixels[(y*w+w-1)*4+3])
+	}
+	return m
+}
