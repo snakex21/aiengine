@@ -1,0 +1,83 @@
+# maps/testy/swiatlo.aie - pokaz oswietlenia (silnik, etap 2) na mapie z wysokosciami
+# Wczytanie z konsoli (~): map maps/testy/swiatlo.aie
+#
+# Wysoka sala ze schodami na balkon, komnata z przepascia i mostem,
+# korytarz z kopcem i niskim tunelem (trzeba kucnac).
+
+MAP swiatlo
+PLAYER_ANGLE 270
+PLAYER_HP 100
+FLOOR_COLOR #1E1A24
+CEILING_COLOR #0C0B14
+HEIGHT_STEP 0.125
+CEILING_HEIGHT 1.25
+STEP_WALL S
+FALL_DAMAGE 40
+LIGHT_AMBIENT 0.35
+FOG yes color=#06050A density=0.12
+
+GRID
+W W W W W W W W W W W W W W W W W W W W
+W . . . . . . . . W . . . . . . . . . W
+W . . . . . . . . W . . . . . . . . . W
+W . . . . . . . . . . . . . . . . . . W
+W . . . . . . . . W . . . . . . . . . W
+W . . . . . . . . W . . . . . . . . . W
+W W W . W W W W W W W W W . W W W W W W
+W . . . . . . . . . . . . . . . . . . W
+W . P . . . . . . . . . . . . . . . . W
+W . . . . . . . . . . . . . . . . . . W
+W W W W W W W W W W W W W W W W W W W W
+
+FLOOR_GRID
+. . . . . . . . . . . . . . . . . . . .
+. . 8 8 8 8 8 8 . . . . . . . . . . . .
+. . 6 6 6 6 6 6 . . . . h h h h h . . .
+. . 4 4 4 4 4 4 . . . . . . . . . . . .
+. . 2 2 2 2 2 2 . . . . h h h h h . . .
+. . . . . . . . . . . . h f d b . . . .
+. . . . . . . . . . . . . . . . . . . .
+. . . . . 2 4 4 2 . . . . . . . . . . .
+. . . . . 2 4 4 2 . . . . . . . . . . .
+. . . . . 2 4 4 2 . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . .
+
+CEILING_GRID
+. . . . . . . . . . . . . . . . . . . .
+. K K K K K K K K . . . . . . . . . . .
+. K K K K K K K K . . . . . . . . . . .
+. K K K K K K K K . . . . . . . . . . .
+. K K K K K K K K . . . . . . . . . . .
+. K K K K K K K K . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . 4 4 4 . . .
+. . . . . . . . . . . . . . 4 4 4 . . .
+. . . . . . . . . . . . . . 4 4 4 . . .
+. . . . . . . . . . . . . . . . . . . .
+
+PLACE item crystal k1 5.5 0 1.5 bob=0.15 glow=0.6 glow_radius=2.5
+PLACE item crystal k2 14.5 0 4.5 bob=0.15 glow=0.7 glow_radius=2.5
+PLACE item potion m1 17.5 0 8.5 scale=0.35
+PLACE enemy straznik s1 4.5 0 1.5 hp=50 speed=0.9 damage=10 sight=6 behavior=guard
+PLACE enemy straznik s2 12.5 0 4.5 hp=50 speed=0.9 damage=10 sight=5
+PLACE enemy straznik s3 11.5 0 8.5 hp=50 speed=0.9 damage=10 sight=6
+
+# Swiatlo: ciemny korytarz, jasny balkon, migoczace pochodnie, pulsujaca
+# przepasc i stroboskop w tunelu.
+LIGHT_GRID
+. . . . . . . . . . . . . . . . . . . .
+. 6 7 9 9 9 9 7 6 . . . . . . . . . . .
+. 5 6 7 7 7 7 6 5 . . . . . . . . . . .
+. 4 5 5 5 5 5 5 4 . . . . . . . . . . .
+. 3 4 4 4 4 4 4 3 . . . . . . . . . . .
+. 3 3 3 3 3 3 3 3 . . . . . . . . . . .
+. . . 3 . . . . . . . . . . . . . . . .
+. 3 3 3 3 3 3 3 3 3 3 3 3 3 1 1 1 3 3 .
+. 3 3 3 3 3 3 3 3 3 3 3 3 3 1 1 1 3 3 .
+. 3 3 3 3 3 3 3 3 3 3 3 3 3 1 1 1 3 3 .
+. . . . . . . . . . . . . . . . . . . .
+
+PLACE light flicker pochodnia1 1.5 0.7 7.5 radius=3.5 level=1.1 speed=9 min=0.3
+PLACE light flicker pochodnia2 8.5 0.7 9.5 radius=3.5 level=1.1 speed=7 min=0.3
+PLACE light pulse otchlan 14.5 0 3.5 radius=3 level=0.9 speed=0.5 min=0.1
+PLACE light strobe alarm 15.5 0 8.5 radius=1.5 level=1 speed=2 min=0

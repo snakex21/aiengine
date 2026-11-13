@@ -86,9 +86,13 @@ type Engine struct {
 	OnWin       func()
 	OnLose      func()
 	OnMapChange func(mapName string)
-	OnRestart   func()                             // restartMap()
-	OnExit      func()                             // exitGame()
-	OnDoor      func(id string, open bool)         // unlockDoor/lockDoor
+	OnRestart   func()                     // restartMap()
+	OnExit      func()                     // exitGame()
+	OnDoor      func(id string, open bool) // unlockDoor/lockDoor
+	// setLight/setLightEffect (level < 0 or effect "" = unchanged) and
+	// setCellLight; the level runtime applies them to the map's lights.
+	OnLight     func(id string, level float64, effect string) bool
+	OnCellLight func(x, y int, level float64) bool
 	OnSpawn     func(id, typ string, x, y float64) // spawnEnemy: host creates the visible enemy
 
 	// Inventory: item name -> count (keys, relics...).
@@ -436,6 +440,23 @@ func (e *Engine) UnlockDoor(id string) {
 		e.OnDoor(id, true)
 	}
 	e.Emit("onDoorOpen", id)
+}
+
+// SetLight changes a placed light: level >= 0 sets its brightness, a
+// non-empty effect its effect (steady, flicker, pulse, strobe, off).
+func (e *Engine) SetLight(id string, level float64, effect string) bool {
+	if e.OnLight == nil {
+		return false
+	}
+	return e.OnLight(id, level, effect)
+}
+
+// SetCellLight changes the base light of map cell (x, y).
+func (e *Engine) SetCellLight(x, y int, level float64) bool {
+	if e.OnCellLight == nil {
+		return false
+	}
+	return e.OnCellLight(x, y, level)
 }
 
 // LockDoor closes a door via OnDoor.

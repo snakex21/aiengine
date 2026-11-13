@@ -86,6 +86,25 @@ func NewSession(lv *Level, eng *scripting.Engine) *Session {
 			log.Printf("[Level] unknown door %q (known: %v)", id, lv.DoorIDs())
 		}
 	}
+	eng.OnLight = func(id string, level float64, effect string) bool {
+		ok := lv.LightByID(id) != nil
+		if ok && level >= 0 {
+			lv.SetLightLevel(id, level)
+		}
+		if ok && effect != "" {
+			ok = lv.SetLightEffect(id, effect)
+		}
+		if !ok {
+			log.Printf("[Level] setLight: unknown light %q or effect %q", id, effect)
+		}
+		lv.UpdateLights(s.Elapsed)
+		return ok
+	}
+	eng.OnCellLight = func(x, y int, level float64) bool {
+		ok := lv.SetCellLight(x, y, level)
+		lv.UpdateLights(s.Elapsed)
+		return ok
+	}
 	eng.OnWin = func() { s.end(Won) }
 	eng.ExitTarget = ""
 	eng.OnLose = func() { s.end(Lost) }
@@ -180,6 +199,7 @@ func (s *Session) Update(dt, px, py float64) []Event {
 		return nil
 	}
 	s.Elapsed += dt
+	s.Level.UpdateLights(s.Elapsed)
 	var events []Event
 
 	for _, p := range s.Level.Placements {

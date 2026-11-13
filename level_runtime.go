@@ -41,6 +41,7 @@ type levelSprite struct {
 	baseZ  float64
 	bob    float64
 	phase  float64
+	glow   renderer.PointLight // glow=<level> glow_radius=<cells>: light around the sprite
 }
 
 func levelRuntimeEnabled() bool {
@@ -78,6 +79,9 @@ func (app *App) startLevel(lv *level.Level) error {
 	if c, ok := parseHexColor(lv.Props["CEILING_COLOR"]); ok {
 		app.raycaster.CeilColor = c
 	}
+	app.raycaster.Fog = lv.Fog()
+	app.raycaster.Lights = nil
+	app.raycaster.Flash, app.flash = 0, 0
 
 	app.effects = renderer.DefaultEffects()
 	app.scriptEngine = scripting.NewEngine()
@@ -123,7 +127,8 @@ func (app *App) startLevel(lv *level.Level) error {
 			s := &renderer.Sprite{X: p.X, Y: p.Y, Z: baseZ, Scale: scale, TexName: app.placementTexture(name),
 				Alpha: 1, Active: true, EntityID: p.ID}
 			app.sprites = append(app.sprites, s)
-			g.sprites[p.ID] = &levelSprite{sprite: s, baseZ: baseZ, bob: p.Float("bob", 0), phase: float64(i)}
+			g.sprites[p.ID] = &levelSprite{sprite: s, baseZ: baseZ, bob: p.Float("bob", 0), phase: float64(i),
+				glow: renderer.PointLight{X: p.X, Y: p.Y, Level: p.Float("glow", 0), Radius: p.Float("glow_radius", 2)}}
 		}
 	}
 
@@ -272,11 +277,18 @@ func (app *App) updateLevel(dt float64) {
 			}
 		}
 	}
+	lights := app.raycaster.Lights[:0]
 	for _, s := range g.sprites {
 		if s.bob > 0 {
 			s.sprite.Z = s.baseZ - s.bob*(1+math.Sin(g.clock*3+s.phase))/2
 		}
 	}
+	for _, s := range g.sprites {
+		if s.glow.Level > 0 && s.sprite.Active {
+			lights = append(lights, s.glow)
+		}
+	}
+	app.raycaster.Lights = lights
 	if g.session.State != level.Playing {
 		app.showEndScreen()
 	}

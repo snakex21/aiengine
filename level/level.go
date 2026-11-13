@@ -73,6 +73,11 @@ type Level struct {
 	// default parameters for enemies of that type (also for spawnEnemy).
 	EnemyTypes map[string]map[string]string
 
+	// Lights are the placed light sources (PLACE light, LIGHT_POINT); see
+	// lights.go. baseLight is the per-cell light before them (nil = lit map).
+	Lights    []*Light
+	baseLight []float64
+
 	doors map[string]*door
 }
 
@@ -184,6 +189,9 @@ func FromDocument(doc *parser.AIEDocument) (*Level, error) {
 		case "SOUND":
 			lv.Sounds = append(lv.Sounds, child)
 		}
+	}
+	if err := lv.buildLights(mapNode); err != nil {
+		return nil, err
 	}
 	// Enemy templates fill in parameters an enemy does not set itself.
 	for i, p := range lv.Placements {

@@ -173,6 +173,21 @@ func (lb *LuaBridge) registerAPI() {
 		return 0
 	}))
 
+	L.SetGlobal("setLight", L.NewFunction(func(L *lua.LState) int {
+		L.Push(lua.LBool(e.SetLight(L.CheckString(1), float64(L.CheckNumber(2)), "")))
+		return 1
+	}))
+
+	L.SetGlobal("setLightEffect", L.NewFunction(func(L *lua.LState) int {
+		L.Push(lua.LBool(e.SetLight(L.CheckString(1), -1, L.CheckString(2))))
+		return 1
+	}))
+
+	L.SetGlobal("setCellLight", L.NewFunction(func(L *lua.LState) int {
+		L.Push(lua.LBool(e.SetCellLight(L.CheckInt(1), L.CheckInt(2), float64(L.CheckNumber(3)))))
+		return 1
+	}))
+
 	L.SetGlobal("lockDoor", L.NewFunction(func(L *lua.LState) int {
 		e.LockDoor(L.CheckString(1))
 		return 0

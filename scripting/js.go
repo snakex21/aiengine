@@ -154,6 +154,16 @@ func (jb *JSBridge) registerAPI() {
 		return goja.Undefined()
 	})
 
+	engineObj.Set("setLight", func(call goja.FunctionCall) goja.Value {
+		return vm.ToValue(e.SetLight(call.Argument(0).String(), call.Argument(1).ToFloat(), ""))
+	})
+	engineObj.Set("setLightEffect", func(call goja.FunctionCall) goja.Value {
+		return vm.ToValue(e.SetLight(call.Argument(0).String(), -1, call.Argument(1).String()))
+	})
+	engineObj.Set("setCellLight", func(call goja.FunctionCall) goja.Value {
+		return vm.ToValue(e.SetCellLight(int(call.Argument(0).ToInteger()), int(call.Argument(1).ToInteger()), call.Argument(2).ToFloat()))
+	})
+
 	engineObj.Set("lockDoor", func(call goja.FunctionCall) goja.Value {
 		e.LockDoor(call.Argument(0).String())
 		return goja.Undefined()

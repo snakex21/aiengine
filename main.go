@@ -93,6 +93,7 @@ type App struct {
 	game             *levelGame
 	winMode          windowMode
 	hurtFlash        float64 // red flash after the player is hit (decays)
+	flash            float64 // weapon (muzzle) light after a shot (decays)
 	shake            float64 // camera shake time left after a hit
 	unfocused        bool
 	focusPaused      bool // legacy pause caused by focus loss; a click resumes
@@ -842,6 +843,7 @@ func (app *App) handleInput() {
 	if app.inputManager.IsJustPressed("shoot") {
 		app.scriptEngine.PlaySound("gunshot")
 		app.playerAnim.ShootTimer = 0.18
+		app.flash = 1
 		app.shootDemoEnemy()
 	}
 	// Use/open doors in front of the player (level runtime).
@@ -1272,6 +1274,9 @@ func (app *App) render() {
 		app.player.Pitch += k * math.Cos(app.totalTime*77)
 		app.shake = math.Max(0, app.shake-app.deltaTime)
 	}
+	// Weapon flash: a short light at the camera after each shot.
+	app.raycaster.Flash = 0.6 * app.flash
+	app.flash = math.Max(0, app.flash-app.deltaTime*9)
 	app.raycaster.ApplyEffects(&fx)
 	app.raycaster.Render(app.sprites)
 	app.player.Angle, app.player.Pitch = angle, pitch
