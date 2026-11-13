@@ -5,7 +5,7 @@ Projekt włącza system menu linią w `manifest.aie`:
 ```
 MENU menu.aie
 LEVEL krypta  maps/krypta.aie  Kryształowa Krypta
-LEVEL trening maps/trening.aie Trening
+LEVEL lodowe_groby maps/lodowe_groby.aie Lodowe Groby
 ```
 
 `LEVEL <id> <mapa> [tytuł]` (powtarzalne) tworzy listę poziomów dla
@@ -88,6 +88,7 @@ SCREEN pause
 | `main_menu` | ekran `main` |
 | `quit` | zamyka grę |
 | `run_script <funkcja>` | wywołuje globalną funkcję Lua (np. `run_script pokazSekret`) |
+| `continue` | kontynuuje zapisaną kampanię; bez zapisu pozycja jest ukryta (zob. `docs/kampania.md`) |
 
 ### Ekrany specjalne
 
@@ -97,7 +98,9 @@ SCREEN pause
   Po wygranej lub przegranej Esc otwiera `main`.
 - `settings` jest generowany. Jeśli ekran nie ma `ITEM`, silnik dodaje wiersze
   `mouse_sensitivity`, `invert_y`, `master_volume`, `music_volume`,
-  `sfx_volume`, `resolution`, `fullscreen`, `fov` i `back`. Etykiety
+  `sfx_volume`, `background_volume`, `resolution`, `render_scale`,
+`fullscreen`, `fullscreen_mode`, `fov` i `back`. Własne etykiety wartości
+ustawia się kluczami `on`, `off`, `native`, `borderless` i `exclusive`. Etykiety
   (domyślnie angielskie) i teksty `on`/`off` zmienisz przez `LABEL`.
 - `level_select` jest generowany z listy `LEVEL` (plus `back`).
 
@@ -133,9 +136,12 @@ INVERT_Y no
 MASTER_VOLUME 1.00       # 0–1, efekty = master*sfx, muzyka = master*music
 MUSIC_VOLUME 0.70
 SFX_VOLUME 1.00
-RESOLUTION 1280x720      # 960x540, 1280x720, 1600x900, 1920x1080
-FULLSCREEN no            # także F11
-FOV 66                   # 50–110 stopni
+RESOLUTION 1280x720      # native, 960x540 ... 1920x1080, 2560x1440, 3440x1440, 3840x2160
+RENDER_SCALE 100         # 50–200 %: część rozdzielczości faktycznie renderowana
+FULLSCREEN no            # także F11 / Alt+Enter
+FULLSCREEN_MODE borderless   # albo exclusive (zmiana trybu monitora)
+BACKGROUND_VOLUME 0      # % głośności, gdy okno nie ma fokusu
+FOV 66                   # 50–110 stopni, zdefiniowane dla 16:9 (Hor+)
 ```
 
 `RESOLUTION` to rozdzielczość renderowania. W oknie jest to rozmiar okna, a na
