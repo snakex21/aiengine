@@ -8,6 +8,9 @@ FLOOR_COLOR #1E1A24
 CEILING_COLOR #0C0B14
 VAR_TIME_LIMIT 210
 VAR_MUSIC krypta_drone
+HEIGHT_STEP 0.125
+LIGHT_AMBIENT 0.55
+FOG yes color=#0C0B14 density=0.08
 INTRO Drzwi otwierasz klawiszem E.|Czerwony klucz otworzy czerwone drzwi.|Niektóre ściany skrywają sekrety - sprawdzaj je klawiszem E.
 OUTRO Przedsionek za tobą. Dalej czeka właściwa krypta.
 
@@ -27,14 +30,69 @@ W . . S . . W . . . W . . . . . . . . W
 W . . . . . W . . . W . . . . . . . . W
 W W W W W W W W W W W W W W W W W W W W
 
+# Wysokosci i swiatlo (silnik: FLOOR_GRID/CEILING_GRID/LIGHT_GRID, 1 jednostka = 1/8 sciany):
+# podest z krysztalem, schody w dol do krypty, wysoka sala, obnizona hala.
+FLOOR_GRID
+. . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . 2 2 . . . . 2 2 2 .
+. . . . . . . . . . 2 2 . . . . 2 2 2 .
+. . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . .
+. . . . . . . . a . . . . . . a . . . .
+. . . . . . . . b . b b b b b b b b b .
+. . . . . . . . c . b b b b b b b b b .
+. . . . . . . . d . b b b b b b b b b .
+. . . . . . . . d . . . . . . b . . . .
+. . . . . . . d d d . b b b b b b b b .
+. . . . . . b d d d . b b b b b b b b .
+. . . . . . . d d d . b b b b b b b b .
+. . . . . . . . . . . . . . . . . . . .
+
+CEILING_GRID
+. . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . G G G G G G .
+. . . . . . . . . . . . . G G G G G G .
+. . . . . . . . . . . . . G G G G G G .
+. . . . . . . . . . . . . G G G G G G .
+. . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . C C C C C C C C C .
+. . . . . . . . . . C C C C C C C C C .
+. . . . . . . . . . C C C C C C C C C .
+. . . . . . . . . . . . . . . . . . . .
+. . . . . . . 6 6 6 . . . . . . . . . .
+. . . . . . . 6 6 6 . . . . . . . . . .
+. . . . . . . 6 6 6 . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . .
+
+LIGHT_GRID
+. . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . 6 6 6 6 6 6 .
+. . . . . . . . . . . . . 6 6 6 6 6 6 .
+. . . . . . . . . . . . . 6 6 6 6 6 6 .
+. . . . . . . . . . . . . 6 6 6 6 6 6 .
+. . . . . . . . 3 . . . . . . . . . . .
+. . . . . . . . 3 . . . . . . . . . . .
+. . . . . . . . 3 . . . . . . . . . . .
+. . . . . . . . 3 . . . . . . . . . . .
+. . . . . . . . 3 . . . . . . . . . . .
+. 2 2 2 2 2 . 2 2 2 . . . . . . . . . .
+. 2 2 2 2 2 2 2 2 2 . . . . . . . . . .
+. 2 2 2 2 2 . 2 2 2 . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . .
+
+PLACE light flicker pochodnia_a 1.5 0.7 1.5 radius=3 level=0.6 speed=8 min=0.3
+PLACE light pulse oltarz 10.5 0 1.5 radius=2.5 level=0.6 speed=0.6 min=0.2
+PLACE light flicker pochodnia_k 8.5 0.7 11.5 radius=2.5 level=0.8 speed=10 min=0.2
+PLACE light pulse portal_blask 17.5 0 11.5 radius=3 level=0.8 speed=0.8 min=0.4
+
 # Typy przeciwników (wartości domyślne dla PLACE enemy i spawnEnemy)
 PLACE enemy_type straznik 0 0 0 hp=50 speed=0.9 damage=10 sight=5 behavior=chase
 PLACE enemy_type pajak 0 0 0 hp=20 speed=2.2 damage=6 sight=6 behavior=wander atlas=assets/sprites/pajak.png scale=0.55 z=0.22 range=0.7 attack_rate=0.7
 
-PLACE item crystal k1 10.5 0 1.5 bob=0.15
-PLACE item crystal k2 17.5 0 1.5 bob=0.15
-PLACE item crystal k3 11.5 0 7.5 bob=0.15
-PLACE item crystal k4 8.5 0 11.5 bob=0.15
+PLACE item crystal k1 10.5 0 1.5 bob=0.15 glow=0.35 glow_radius=1.5
+PLACE item crystal k2 17.5 0 1.5 bob=0.15 glow=0.35 glow_radius=1.5
+PLACE item crystal k3 11.5 0 7.5 bob=0.15 glow=0.35 glow_radius=1.5
+PLACE item crystal k4 8.5 0 11.5 bob=0.15 glow=0.35 glow_radius=1.5
 PLACE item klucz_czerwony kc 5.5 0 6.5 give=klucz_czerwony bob=0.1 scale=0.4
 PLACE item relikwia r1 2.5 0 11.5 give=relikwia bob=0.1 scale=0.4
 PLACE item potion m1 13.5 0 3.5 scale=0.35

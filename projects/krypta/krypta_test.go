@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"aiengine/level"
+	"aiengine/nav"
 	"aiengine/scripting"
 )
 
@@ -78,7 +79,8 @@ func reachable(lv *level.Level) map[[2]int]bool {
 		queue = queue[1:]
 		for _, d := range [][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}} {
 			n := [2]int{c[0] + d[0], c[1] + d[1]}
-			if seen[n] || lv.IsSolid(float64(n[0])+0.5, float64(n[1])+0.5) {
+			if seen[n] || lv.IsSolid(float64(n[0])+0.5, float64(n[1])+0.5) ||
+				!stepOK(lv, nav.Cell{X: c[0], Y: c[1]}, nav.Cell{X: n[0], Y: n[1]}) {
 				continue
 			}
 			seen[n] = true
@@ -110,7 +112,7 @@ func TestEverythingReachableButPortalNeedsTheGate(t *testing.T) {
 	g := start(t)
 	open := reachable(g.lv)
 	for _, p := range g.lv.Placements {
-		if p.Kind == "door" || p.ID == "portal" {
+		if p.Kind == "door" || p.Kind == "light" || p.ID == "portal" {
 			continue
 		}
 		if !open[cell(p)] {

@@ -7,6 +7,9 @@ PLAYER_HP 100
 TEXTURES assets/textures/kopalnia
 FLOOR_COLOR #3A3028
 CEILING_COLOR #120C08
+HEIGHT_STEP 0.125
+LIGHT_AMBIENT 0.45
+FOG yes color=#140E0A density=0.12
 VAR_TIME_LIMIT 270
 VAR_MUSIC krypta_drone
 INTRO Kopalnię zalał żrący kwas.|Strażnicy czekają w zasadzkach i ruszają dopiero, gdy podejdziesz.|Ściany korytarzy kryją niejedną tajemnicę.
@@ -30,16 +33,78 @@ W . . . . . . W . . . . . . W . . . . . . W
 W . . . . . . W . . . . . . W . . . . . . W
 W W W W W W W W W W W W W W W W W W W W W W
 
+# Wysokosci i swiatlo: niskie chodniki, wysoki szyb, zalana obnizona komora
+# (glebiej - ukryta komora z relikwia), podwyzszona sala portalu, latarnie.
+FLOOR_GRID
+. . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . a . . . . . . . . . .
+. . . . . . . . b b b b b b . . . . . . . .
+. . . . . . . . b b b b b b . . . . . . . .
+. . . . . . . a b b b b b b a . . . . . . .
+. . . . . . . . b b b b b b . . . . . . . .
+. . . . . . . . . . . c . . . . . . 1 . . .
+. . . . . . . . d d d d d d . 2 2 2 2 2 2 .
+. . . . . . . . d d d d d d . 2 2 2 2 2 2 .
+. . . . . . . . d d d d d d . 2 2 2 2 2 2 .
+. . . . . . . . d d d d d d . 2 2 2 2 2 2 .
+. . . . . . . . . . . . . . . . . . . . . .
+
+CEILING_GRID
+. . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . 6 6 6 6 6 6 . K K K K K K .
+. . . . . . . . 6 6 6 6 6 6 . K K K K K K .
+. . . . . . . . 6 6 6 6 6 6 . K K K K K K .
+. . . . . . . . 6 6 6 6 6 6 . K K K K K K .
+. . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . C C C C C C .
+. . . . . . . . . . . . . . . C C C C C C .
+. . . . . . . . . . . . . . . C C C C C C .
+. . . . . . . . . . . . . . . C C C C C C .
+. . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . 5 5 5 5 5 5 . . . . . . . .
+. . . . . . . . 5 5 5 5 5 5 . . . . . . . .
+. . . . . . . . 5 5 5 5 5 5 . . . . . . . .
+. . . . . . . . 5 5 5 5 5 5 . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . .
+
+LIGHT_GRID
+. . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . 3 3 3 3 3 3 . . . . . . . .
+. . . . . . . . 3 3 3 3 3 3 . . . . . . . .
+. . . . . . . . 3 3 3 3 3 3 . . . . . . . .
+. . . . . . . . 3 3 3 3 3 3 . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . 2 2 2 2 2 2 . . . . . . . .
+. . . . . . . . 2 2 2 2 2 2 . . . . . . . .
+. . . . . . . . 2 2 2 2 2 2 . . . . . . . .
+. . . . . . . . 2 2 2 2 2 2 . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . 2 2 2 2 2 2 . . . . . . . .
+. . . . . . . . 2 2 2 2 2 2 . . . . . . . .
+. . . . . . . . 2 2 2 2 2 2 . . . . . . . .
+. . . . . . . . 2 2 2 2 2 2 . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . .
+
+PLACE light flicker latarnia_a 3.5 0.7 1.5 radius=3 level=0.6 speed=7 min=0.3
+PLACE light flicker latarnia_b 10.5 0.6 3.5 radius=3 level=0.7 speed=12 min=0.2
+PLACE light flicker latarnia_e 9.5 0.5 6.5 radius=2.5 level=0.6 speed=10 min=0.2
+PLACE light steady szyb 17.5 2 2.5 radius=3.5 level=0.4
+PLACE light pulse portal_blask 18.5 0 12.5 radius=3 level=0.9 speed=0.8 min=0.4
+
 # Typy przeciwników (wartości domyślne dla PLACE enemy i spawnEnemy)
 PLACE enemy_type straznik 0 0 0 hp=50 speed=0.9 damage=10 sight=5 behavior=chase
 PLACE enemy_type pajak 0 0 0 hp=20 speed=2.2 damage=6 sight=6 behavior=wander atlas=assets/sprites/pajak.png scale=0.55 z=0.22 range=0.7 attack_rate=0.7
 
-PLACE item crystal k1 5.5 0 1.5 bob=0.15
-PLACE item crystal k2 12.5 0 3.5 bob=0.15
-PLACE item crystal k3 19.5 0 1.5 bob=0.15
-PLACE item crystal k4 1.5 0 13.5 bob=0.15
-PLACE item crystal k5 19.5 0 6.5 bob=0.15
-PLACE item crystal k6 8.5 0 9.5 bob=0.15
+PLACE item crystal k1 5.5 0 1.5 bob=0.15 glow=0.35 glow_radius=1.5
+PLACE item crystal k2 12.5 0 3.5 bob=0.15 glow=0.35 glow_radius=1.5
+PLACE item crystal k3 19.5 0 1.5 bob=0.15 glow=0.35 glow_radius=1.5
+PLACE item crystal k4 1.5 0 13.5 bob=0.15 glow=0.35 glow_radius=1.5
+PLACE item crystal k5 19.5 0 6.5 bob=0.15 glow=0.35 glow_radius=1.5
+PLACE item crystal k6 8.5 0 9.5 bob=0.15 glow=0.35 glow_radius=1.5
 PLACE item klucz_czerwony kc 1.5 0 8.5 give=klucz_czerwony bob=0.1 scale=0.4
 PLACE item klucz_niebieski kn 19.5 0 4.5 give=klucz_niebieski bob=0.1 scale=0.4
 PLACE item relikwia r1 11.5 0 12.5 give=relikwia bob=0.1 scale=0.4

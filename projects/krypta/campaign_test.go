@@ -8,6 +8,7 @@ import (
 	"aiengine/nav"
 	"aiengine/parser"
 	"aiengine/progress"
+	"aiengine/renderer"
 	"aiengine/scripting"
 )
 
@@ -114,7 +115,7 @@ func flood(lv *level.Level, opened map[string]bool) map[nav.Cell]bool {
 		queue = queue[1:]
 		for _, o := range []nav.Cell{{X: 1}, {X: -1}, {Y: 1}, {Y: -1}} {
 			n := nav.Cell{X: c.X + o.X, Y: c.Y + o.Y}
-			if !seen[n] && passable(n) {
+			if !seen[n] && passable(n) && stepOK(lv, c, n) {
 				seen[n] = true
 				queue = append(queue, n)
 			}
@@ -276,4 +277,13 @@ func TestBossSummonsSpiders(t *testing.T) {
 	if len(lv.EnemyTypes["pajak"]) == 0 || lv.EnemyTypes["wladca"]["hp"] != "300" {
 		t.Fatalf("enemy types %v", lv.EnemyTypes)
 	}
+}
+
+// stepOK applies the height rules to a move between neighbouring cells
+// (ignoring whether the target is a closed door): rises up to a step,
+// any drop, and room to stand.
+func stepOK(lv *level.Level, from, to nav.Cell) bool {
+	ft := lv.FloorAt(to.X, to.Y)
+	return ft-lv.FloorAt(from.X, from.Y) <= renderer.MaxStepUp+1e-9 &&
+		lv.CeilAt(to.X, to.Y)-ft >= renderer.HeadroomStand-1e-9
 }
