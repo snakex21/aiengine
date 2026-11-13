@@ -143,6 +143,9 @@ type frame struct {
 	fogC       [3]int32
 	cellLight  []int32 // per cell, 8.8 fixed point (nil = all 256)
 	lut        [len(shadeLUT)]lightEntry
+
+	// Sector maps (sector_cast.go); nil for grid maps.
+	sec *sectorFrame
 }
 
 // rowAt is the (fractional) screen row of world height h at distance d.
@@ -192,6 +195,9 @@ func (rc *Raycaster) renderToBuffer(sprites []*Sprite) {
 		f.rowK[y] = f.focal / math.Max(dy, 1e-3)
 	}
 	rc.prepareLighting(f)
+	if rc.Sectors != nil {
+		rc.prepareSectors(f)
+	}
 	if len(rc.zBuffer) != f.sw {
 		rc.zBuffer = make([]float64, f.sw)
 	}
@@ -201,7 +207,11 @@ func (rc *Raycaster) renderToBuffer(sprites []*Sprite) {
 
 	parallel(f.sw, func(lo, hi int) {
 		for x := lo; x < hi; x++ {
-			rc.castColumn(f, x)
+			if f.sec != nil {
+				rc.castSectorColumn(f, x)
+			} else {
+				rc.castColumn(f, x)
+			}
 		}
 	})
 	rc.drawSpritesCPU(f, sprites)
@@ -387,19 +397,25 @@ func (rc *Raycaster) drawPlane(f *frame, x, y0, y1 int, dh float64, L int32, tex
 // unit, top of a classic 0..1 wall at v=0), so faces of different heights
 // line up.
 func (rc *Raycaster) drawWall(f *frame, x, y0, y1 int, d float64, L int32, cell MapCell, side int, wallX float64) {
-	sw := f.sw
-	pix := rc.pixels
 	k := int32(256)
 	if side == 1 {
 		k = 179 // 0.7: cheap directional light
 	}
-	s, fz := distShade(d)*k>>8, int32(0)
-	if f.lit {
-		s, fz = f.shadeFor(L, lutIndex(d), k)
-	}
 	var tex *Texture2D
 	if int(cell) >= 0 && int(cell) < len(f.wallTex) {
 		tex = f.wallTex[cell]
+	}
+	rc.drawWallTex(f, x, y0, y1, d, L, tex, cell, k, wallX)
+}
+
+// drawWallTex draws a wall face with texture tex (nil = the flat colour of
+// cell) and directional factor k (256 = 1).
+func (rc *Raycaster) drawWallTex(f *frame, x, y0, y1 int, d float64, L int32, tex *Texture2D, cell MapCell, k int32, wallX float64) {
+	sw := f.sw
+	pix := rc.pixels
+	s, fz := distShade(d)*k>>8, int32(0)
+	if f.lit {
+		s, fz = f.shadeFor(L, lutIndex(d), k)
 	}
 	if tex == nil {
 		wc, ok := wallColors[cell]
@@ -508,7 +524,8 @@ func (rc *Raycaster) drawSpritesCPU(f *frame, sprites []*Sprite) {
 		}
 		// World top of the sprite: it stands on its cell's floor; Z > 0
 		// lowers it (legacy convention), Scale is its height.
-		topH := rc.Map.FloorAtPoint(s.X, s.Y) + EyeHeight - s.Z + s.Scale/2
+		floor, L := rc.thingFloorLight(f, s.X, s.Y)
+		topH := floor + EyeHeight - s.Z + s.Scale/2
 		yTop := f.rowAt(topH, depth)
 		if yTop >= f.fsh || yTop+size < 0 {
 			continue
@@ -519,8 +536,7 @@ func (rc *Raycaster) drawSpritesCPU(f *frame, sprites []*Sprite) {
 		}
 		shade, fog := distShade(depth), int32(0)
 		if f.lit { // sprites are lit by the cell they stand in
-			cx, cy := cellAtPoint(s.X, s.Y)
-			shade, fog = f.shadeFor(f.light(rc.Map, cx, cy), lutIndex(depth), 256)
+			shade, fog = f.shadeFor(L, lutIndex(depth), 256)
 		}
 		items = append(items, spriteItem{tex: tex, alpha: min(alpha, 256), depth: depth, x0: x0, size: size,
 			yTop: yTop, shade: shade, fog: fog})

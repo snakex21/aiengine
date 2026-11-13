@@ -116,7 +116,11 @@ const flashRange = 6.0
 func (rc *Raycaster) prepareLighting(f *frame) {
 	m := rc.Map
 	f.fogOn = rc.Fog.Density > 0
-	f.lit = m.Light != nil || len(rc.Lights) > 0 || rc.Flash > 0 || f.fogOn
+	mapLit := m.Light != nil
+	if rc.Sectors != nil {
+		mapLit = rc.sectorsLit()
+	}
+	f.lit = mapLit || len(rc.Lights) > 0 || rc.Flash > 0 || f.fogOn
 	if !f.lit {
 		return
 	}
@@ -134,7 +138,7 @@ func (rc *Raycaster) prepareLighting(f *frame) {
 		e.keep = 256 - e.fog
 		e.fogR, e.fogG, e.fogB = f.fogC[0]*e.fog, f.fogC[1]*e.fog, f.fogC[2]*e.fog
 	}
-	if m.Light == nil && len(rc.Lights) == 0 {
+	if rc.Sectors != nil || (m.Light == nil && len(rc.Lights) == 0) {
 		return
 	}
 	n := m.Width * m.Height

@@ -12,6 +12,8 @@ import (
 	"math"
 
 	"github.com/go-gl/gl/v4.1-core/gl"
+
+	"aiengine/sector"
 )
 
 // --- Map ---
@@ -343,6 +345,10 @@ type Raycaster struct {
 	Flash     float64
 	Fog       Fog
 	cellLight []int32
+
+	// Sectors, when set, is rendered instead of the grid Map (sector_cast.go).
+	Sectors  *sector.Map
+	secFrame *sectorFrame
 
 	// Effects (applied via simple post-processing).
 	effects *EffectsConfig
