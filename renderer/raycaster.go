@@ -282,6 +282,11 @@ type Raycaster struct {
 	ui    []uint8
 	uiTex uint32
 
+	// Optional floor/ceiling textures (TextureManager names, power-of-two
+	// sizes); empty = flat CeilColor/FloorColor.
+	FloorTexture   string
+	CeilingTexture string
+
 	// Floor/ceiling fill colours (defaults set by NewRaycaster).
 	CeilColor  color.RGBA
 	FloorColor color.RGBA
@@ -504,345 +509,48 @@ func (rc *Raycaster) Resize(w, h int32) {
 // Size returns the internal render resolution.
 func (rc *Raycaster) Size() (int, int) { return int(rc.screenW), int(rc.screenH) }
 
-// renderToBuffer fills rc.pixels with ceiling, floor, and wall columns.
-func (rc *Raycaster) renderToBuffer(sprites []*Sprite) {
-	sw := int(rc.screenW)
-	sh := int(rc.screenH)
-	fsw := float64(sw)
-	fsh := float64(sh)
-
-	// Fill ceiling and floor. The horizon line shifts with pitch (look up/down)
-	// so the floor/ceiling split tracks the camera's vertical aim.
-	ceil := colorToRGBA(rc.CeilColor)
-	flr := colorToRGBA(rc.FloorColor)
-
-	horizon := sh/2 + int(rc.Player.Pitch*fsh)
-	if horizon < 0 {
-		horizon = 0
-	}
-	if horizon > sh {
-		horizon = sh
-	}
-
-	for y := 0; y < horizon; y++ {
-		for x := 0; x < sw; x++ {
-			idx := (y*sw + x) * 4
-			rc.pixels[idx] = ceil[0]
-			rc.pixels[idx+1] = ceil[1]
-			rc.pixels[idx+2] = ceil[2]
-			rc.pixels[idx+3] = ceil[3]
-		}
-	}
-	for y := horizon; y < sh; y++ {
-		for x := 0; x < sw; x++ {
-			idx := (y*sw + x) * 4
-			rc.pixels[idx] = flr[0]
-			rc.pixels[idx+1] = flr[1]
-			rc.pixels[idx+2] = flr[2]
-			rc.pixels[idx+3] = flr[3]
-		}
-	}
-
-	// Reset Z-buffer.
-	for i := range rc.zBuffer {
-		rc.zBuffer[i] = 0
-	}
-
-	halfFOV := rc.Player.FOV / 2.0
-
-	// Vertical screen shift applied to walls/sprites: pitch (uniform horizon
-	// shift) plus camera height (distance-scaled parallax from jump/stance).
-	pitchShift := rc.Player.Pitch * fsh
-	camHeight := rc.Player.CameraHeight()
-
-	// Raycast each column.
-	for x := 0; x < sw; x++ {
-		cameraX := 2.0*float64(x)/fsw - 1.0
-		rayAngle := rc.Player.Angle + cameraX*halfFOV
-
-		rayDirX := math.Cos(rayAngle)
-		rayDirY := math.Sin(rayAngle)
-
-		mapX := int(math.Floor(rc.Player.X))
-		mapY := int(math.Floor(rc.Player.Y))
-
-		deltaDistX := math.Abs(1.0 / rayDirX)
-		deltaDistY := math.Abs(1.0 / rayDirY)
-		if math.IsInf(deltaDistX, 0) {
-			deltaDistX = 1e30
-		}
-		if math.IsInf(deltaDistY, 0) {
-			deltaDistY = 1e30
-		}
-
-		var sideDistX, sideDistY float64
-		var stepX, stepY int
-
-		if rayDirX < 0 {
-			stepX = -1
-			sideDistX = (rc.Player.X - float64(mapX)) * deltaDistX
-		} else {
-			stepX = 1
-			sideDistX = (float64(mapX) + 1.0 - rc.Player.X) * deltaDistX
-		}
-		if rayDirY < 0 {
-			stepY = -1
-			sideDistY = (rc.Player.Y - float64(mapY)) * deltaDistY
-		} else {
-			stepY = 1
-			sideDistY = (float64(mapY) + 1.0 - rc.Player.Y) * deltaDistY
-		}
-
-		var hit bool
-		var side int
-		var wallType MapCell
-		const maxSteps = 64
-
-		for step := 0; step < maxSteps; step++ {
-			if sideDistX < sideDistY {
-				sideDistX += deltaDistX
-				mapX += stepX
-				side = 0
-			} else {
-				sideDistY += deltaDistY
-				mapY += stepY
-				side = 1
-			}
-			cell := rc.Map.GetCell(mapX, mapY)
-			if cell != CellEmpty {
-				hit = true
-				wallType = cell
-				break
-			}
-		}
-
-		if !hit {
-			continue
-		}
-
-		// Perpendicular distance.
-		var perpDist float64
-		if side == 0 {
-			perpDist = sideDistX - deltaDistX
-		} else {
-			perpDist = sideDistY - deltaDistY
-		}
-		if perpDist < 0.001 {
-			perpDist = 0.001
-		}
-
-		rc.zBuffer[x] = perpDist
-
-		// Wall height on screen.
-		wallHeight := fsh / perpDist
-		// Vertical screen offset: camera height (jump + stance) projects to
-		// camHeight*wallHeight pixels at this distance (distance-scaled
-		// parallax), plus a uniform pitch shift for looking up/down.
-		vOffset := camHeight*wallHeight + pitchShift
-		drawStart := int((fsh-wallHeight)/2.0 + vOffset)
-		drawEnd := int(drawStart) + int(wallHeight)
-		if drawStart < 0 {
-			drawStart = 0
-		}
-		if drawEnd >= sh {
-			drawEnd = sh
-		}
-
-		// Compute texture X coordinate.
-		var wallX float64
-		if side == 0 {
-			wallX = rc.Player.Y + perpDist*rayDirY
-		} else {
-			wallX = rc.Player.X + perpDist*rayDirX
-		}
-		wallX -= math.Floor(wallX)
-
-		// Distance shading.
-		shade := 1.0
-		if perpDist > 1.0 {
-			shade = 1.0 / math.Sqrt(perpDist)
-		}
-		if side == 1 {
-			shade *= 0.7 // Y-side darker
-		}
-
-		// Select texture by wall type.
-		texName := "brick"
-		switch wallType {
-		case CellWall1:
-			texName = "brick"
-		case CellWall2:
-			texName = "stone"
-		case CellWall3:
-			texName = "metal"
-		case CellDoor:
-			texName = "wood"
-		}
-		tex := rc.TexManager.Get(texName)
-
-		if tex != nil && len(tex.Pixels) > 0 {
-			texW := int(tex.Width)
-			texH := int(tex.Height)
-			texX := int(wallX*float64(texW)) % texW
-			if texX < 0 {
-				texX += texW
-			}
-			step := float64(texH) / wallHeight
-			texPos := (float64(drawStart) - fsh/2.0 + wallHeight/2.0 - vOffset) * step
-
-			for y := drawStart; y < drawEnd; y++ {
-				texY := int(texPos) & (texH - 1)
-				texPos += step
-				srcIdx := (texY*texW + texX) * 4
-				dstIdx := (y*sw + x) * 4
-				rc.pixels[dstIdx] = uint8(float64(tex.Pixels[srcIdx]) * shade)
-				rc.pixels[dstIdx+1] = uint8(float64(tex.Pixels[srcIdx+1]) * shade)
-				rc.pixels[dstIdx+2] = uint8(float64(tex.Pixels[srcIdx+2]) * shade)
-				rc.pixels[dstIdx+3] = 255
-			}
-		} else {
-			// Fallback solid color.
-			wc := wallColors[wallType]
-			r := uint8(float64(wc.R) * shade)
-			g := uint8(float64(wc.G) * shade)
-			b := uint8(float64(wc.B) * shade)
-			texStripe := uint8(float64(wallX) * 255.0)
-			r = uint8(float64(r)*0.7 + float64(texStripe)*0.3)
-			g = uint8(float64(g)*0.7 + float64(texStripe)*0.3)
-			b = uint8(float64(b)*0.7 + float64(texStripe)*0.3)
-			for y := drawStart; y < drawEnd; y++ {
-				idx := (y*sw + x) * 4
-				rc.pixels[idx] = r
-				rc.pixels[idx+1] = g
-				rc.pixels[idx+2] = b
-				rc.pixels[idx+3] = 255
-			}
-		}
-	}
-
-	// Screen-space colour effects (red tint, desaturate, brightness,
-	// vignette) on the world image, before HUD text is drawn.
-	rc.applyScreenEffects(sw, sh)
-
-}
-
-// drawHUD renders crosshair, HP bar and ammo counter.
+// drawHUD renders crosshair, HP bar and ammo counter, scaled with the
+// render height so they stay the same relative size at any resolution.
 func (rc *Raycaster) drawHUD(sw, sh int) {
-	cx := sw / 2
-	cy := sh / 2
-	crossLen := 8
-	crossGap := 2
+	u := UIScale(sh)
 	white := [4]uint8{255, 255, 255, 255}
+	cx, cy := sw/2, sh/2
+	l, g := 4*u, u+1
+	FillRect(rc.ui, sw, sh, cx-l, cy, l-g, max(1, u/2), white)
+	FillRect(rc.ui, sw, sh, cx+g, cy, l-g, max(1, u/2), white)
+	FillRect(rc.ui, sw, sh, cx, cy-l, max(1, u/2), l-g, white)
+	FillRect(rc.ui, sw, sh, cx, cy+g, max(1, u/2), l-g, white)
 
-	for x := cx - crossLen; x < cx-crossGap; x++ {
-		if x >= 0 && x < sw {
-			idx := (cy*sw + x) * 4
-			rc.ui[idx], rc.ui[idx+1], rc.ui[idx+2], rc.ui[idx+3] = white[0], white[1], white[2], white[3]
+	border := [4]uint8{60, 60, 60, 255}
+	bg := [4]uint8{30, 30, 30, 200}
+	bar := func(x, y, w, h int, ratio float64, fill func(frac float64) [4]uint8) {
+		FillRect(rc.ui, sw, sh, x-1, y-1, w+2, h+2, border)
+		FillRect(rc.ui, sw, sh, x, y, w, h, bg)
+		ratio = clamp01(ratio)
+		fw := int(float64(w) * ratio)
+		for i := 0; i < fw; i++ {
+			FillRect(rc.ui, sw, sh, x+i, y, 1, h, fill(float64(i)/float64(w)))
 		}
 	}
-	for x := cx + crossGap; x < cx+crossLen; x++ {
-		if x >= 0 && x < sw {
-			idx := (cy*sw + x) * 4
-			rc.ui[idx], rc.ui[idx+1], rc.ui[idx+2], rc.ui[idx+3] = white[0], white[1], white[2], white[3]
-		}
-	}
-	for y := cy - crossLen; y < cy-crossGap; y++ {
-		if y >= 0 && y < sh {
-			idx := (y*sw + cx) * 4
-			rc.ui[idx], rc.ui[idx+1], rc.ui[idx+2], rc.ui[idx+3] = white[0], white[1], white[2], white[3]
-		}
-	}
-	for y := cy + crossGap; y < cy+crossLen; y++ {
-		if y >= 0 && y < sh {
-			idx := (y*sw + cx) * 4
-			rc.ui[idx], rc.ui[idx+1], rc.ui[idx+2], rc.ui[idx+3] = white[0], white[1], white[2], white[3]
-		}
-	}
-
-	// HP bar.
-	barX, barY, barW, barH := 10, sh-30, 150, 12
-	borderColor := [4]uint8{60, 60, 60, 255}
-	bgColor := [4]uint8{30, 30, 30, 200}
-	for y := barY - 1; y <= barY+barH; y++ {
-		for x := barX - 1; x <= barX+barW; x++ {
-			if y >= 0 && y < sh && x >= 0 && x < sw {
-				idx := (y*sw + x) * 4
-				rc.ui[idx], rc.ui[idx+1], rc.ui[idx+2], rc.ui[idx+3] = borderColor[0], borderColor[1], borderColor[2], borderColor[3]
-			}
-		}
-	}
-	for y := barY; y < barY+barH; y++ {
-		for x := barX; x < barX+barW; x++ {
-			idx := (y*sw + x) * 4
-			rc.ui[idx], rc.ui[idx+1], rc.ui[idx+2], rc.ui[idx+3] = bgColor[0], bgColor[1], bgColor[2], bgColor[3]
-		}
-	}
+	m := 5 * u
+	bw, bh := 75*u, 6*u
 	if rc.HUDMaxHP > 0 {
-		ratio := float64(rc.HUDHP) / float64(rc.HUDMaxHP)
-		if ratio < 0 {
-			ratio = 0
-		}
-		if ratio > 1 {
-			ratio = 1
-		}
-		fillW := int(float64(barW) * ratio)
-		for y := barY; y < barY+barH; y++ {
-			for x := barX; x < barX+fillW; x++ {
-				frac := float64(x-barX) / float64(barW)
-				r := uint8(255 * (1 - frac))
-				g := uint8(255 * frac)
-				idx := (y*sw + x) * 4
-				rc.ui[idx], rc.ui[idx+1], rc.ui[idx+2] = r, g, 0
-				rc.ui[idx+3] = 220
-			}
-		}
+		bar(m, sh-m-bh, bw, bh, float64(rc.HUDHP)/float64(rc.HUDMaxHP), func(f float64) [4]uint8 {
+			return [4]uint8{uint8(255 * (1 - f)), uint8(255 * f), 0, 220}
+		})
 	}
-
-	// Ammo counter (hidden when the game has no ammo).
-	if rc.HUDAmmoMax <= 0 {
-		return
-	}
-	ammoX, ammoY, ammoW, ammoH := sw-140, sh-30, 130, 12
-	for y := ammoY - 1; y <= ammoY+ammoH; y++ {
-		for x := ammoX - 1; x <= ammoX+ammoW; x++ {
-			if y >= 0 && y < sh && x >= 0 && x < sw {
-				idx := (y*sw + x) * 4
-				rc.ui[idx], rc.ui[idx+1], rc.ui[idx+2], rc.ui[idx+3] = borderColor[0], borderColor[1], borderColor[2], borderColor[3]
-			}
-		}
-	}
-	for y := ammoY; y < ammoY+ammoH; y++ {
-		for x := ammoX; x < ammoX+ammoW; x++ {
-			idx := (y*sw + x) * 4
-			rc.ui[idx], rc.ui[idx+1], rc.ui[idx+2], rc.ui[idx+3] = bgColor[0], bgColor[1], bgColor[2], bgColor[3]
-		}
-	}
-	if rc.HUDAmmoMax > 0 {
-		ratio := float64(rc.HUDAmmo) / float64(rc.HUDAmmoMax)
-		if ratio < 0 {
-			ratio = 0
-		}
-		if ratio > 1 {
-			ratio = 1
-		}
-		fillW := int(float64(ammoW) * ratio)
-		for y := ammoY; y < ammoY+ammoH; y++ {
-			for x := ammoX; x < ammoX+fillW; x++ {
-				idx := (y*sw + x) * 4
-				rc.ui[idx], rc.ui[idx+1], rc.ui[idx+2] = uint8(220), uint8(160), uint8(40)
-				rc.ui[idx+3] = 220
-			}
-		}
+	if rc.HUDAmmoMax > 0 { // hidden when the game has no ammo
+		aw := 65 * u
+		bar(sw-m-aw, sh-m-bh, aw, bh, float64(rc.HUDAmmo)/float64(rc.HUDAmmoMax), func(float64) [4]uint8 {
+			return [4]uint8{220, 160, 40, 220}
+		})
 	}
 }
 
 // drawHUDText draws script HUD lines, the centred message and the overlay.
 func (rc *Raycaster) drawHUDText(sw, sh int) {
 	white := [4]uint8{235, 235, 235, 255}
-	scale := 2
-	if sh >= 900 {
-		scale = 3
-	}
+	scale := UIScale(sh)
 	if rc.OverlayTitle == "" {
 		for i, line := range rc.HUDLines {
 			DrawTextScaled(rc.ui, sw, sh, 12, 12+FontAccentRows*scale+i*(FontH+FontAccentRows+1)*scale, line, white, scale)
@@ -911,7 +619,13 @@ func (rc *Raycaster) applyScreenEffects(sw, sh int) {
 	}
 	cx, cy := float64(sw)/2, float64(sh)/2
 	maxD2 := cx*cx + cy*cy
-	for y := 0; y < sh; y++ {
+	parallel(sh, func(y0, y1 int) {
+		rc.effectRows(y0, y1, sw, red, desat, vig, bright, cx, cy, maxD2)
+	})
+}
+
+func (rc *Raycaster) effectRows(y0, y1, sw int, red, desat, vig, bright, cx, cy, maxD2 float64) {
+	for y := y0; y < y1; y++ {
 		dy := float64(y) - cy
 		for x := 0; x < sw; x++ {
 			i := (y*sw + x) * 4
@@ -994,16 +708,18 @@ func (rc *Raycaster) drawConsole(sw, sh int) {
 		}
 	}
 
+	u := max(1, UIScale(sh)/2)
+	lineH := (FontH + 2) * u
 	prompt := "> " + rc.ConsoleInput + "_"
-	DrawConsoleString(rc.ui, sw, 8, sh-14, prompt, green)
+	DrawTextScaled(rc.ui, sw, sh, 8*u, sh-lineH-4*u, prompt, green, u)
 
-	visible := (sh/2 - 20) / FontH
+	visible := (sh/2 - 20*u) / lineH
 	if visible > len(rc.ConsoleHistory) {
 		visible = len(rc.ConsoleHistory)
 	}
 	for i := 0; i < visible; i++ {
 		line := rc.ConsoleHistory[len(rc.ConsoleHistory)-visible+i]
-		DrawConsoleString(rc.ui, sw, 8, sh-14-(visible-i)*FontH, line, white)
+		DrawTextScaled(rc.ui, sw, sh, 8*u, sh-lineH-4*u-(visible-i)*lineH, line, white, u)
 	}
 }
 
@@ -1016,7 +732,7 @@ func (rc *Raycaster) drawSprites(sprites []*Sprite) {
 	}
 	sw := float64(rc.screenW)
 	sh := float64(rc.screenH)
-	halfFOV := rc.Player.FOV / 2.0
+	halfFOV := rc.fov() / 2.0
 
 	// Pre-compute sprite data: Euclidean distance + perpendicular distance.
 	type spriteData struct {
