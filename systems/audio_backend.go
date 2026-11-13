@@ -115,7 +115,7 @@ func NewAudioBackend(sampleRate int, soundPaths []string) (*AudioBackend, error)
 func (ab *AudioBackend) reaper() {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
-	for ab.running {
+	for { // stops when quit is closed (reading ab.running here raced with Shutdown)
 		select {
 		case <-ab.quit:
 			return
