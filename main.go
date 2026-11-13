@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/go-gl/glfw/v3.3/glfw"
 
 	"aiengine/input"
+	"aiengine/level"
 	"aiengine/parser"
 	"aiengine/renderer"
 	"aiengine/scripting"
@@ -75,6 +77,67 @@ type App struct {
 	prevMouseX float64
 	prevMouseY float64
 	mouseInit  bool
+
+	// Level runtime (manifest RUNTIME level); nil for the legacy demo.
+	game             *levelGame
+	restartRequested bool
+	enterWasDown     bool
+
+	// Command-line run options and frame statistics.
+	opts       runOptions
+	frameCount int
+	fpsTimer   float64
+	fpsFrames  int
+	fps        float64
+	totalTime  float64
+}
+
+// runOptions are flags for a normal game launch.
+type runOptions struct {
+	project    string // --project
+	screenshot string // --screenshot <file.png>: save a frame, then quit
+	frames     int    // --frames N: frame to capture / quit after (0 = run)
+	exec       string // --exec "cmd; cmd": console commands after start
+}
+
+// parseRunOptions parses launch flags. Unknown flags are an error.
+func parseRunOptions(args []string) (runOptions, error) {
+	var o runOptions
+	need := func(i int, flag string) (string, error) {
+		if i+1 >= len(args) {
+			return "", fmt.Errorf("%s needs a value", flag)
+		}
+		return args[i+1], nil
+	}
+	for i := 0; i < len(args); i++ {
+		var err error
+		switch args[i] {
+		case "--project":
+			o.project, err = need(i, args[i])
+			i++
+		case "--screenshot":
+			o.screenshot, err = need(i, args[i])
+			i++
+		case "--exec":
+			o.exec, err = need(i, args[i])
+			i++
+		case "--frames":
+			var v string
+			if v, err = need(i, args[i]); err == nil {
+				o.frames, err = strconv.Atoi(v)
+			}
+			i++
+		default:
+			err = fmt.Errorf("unknown flag: %s (use --help)", args[i])
+		}
+		if err != nil {
+			return o, err
+		}
+	}
+	if o.screenshot != "" && o.frames <= 0 {
+		o.frames = 60
+	}
+	return o, nil
 }
 
 type DemoEnemy struct {
@@ -85,6 +148,7 @@ type DemoEnemy struct {
 	Speed       float64
 	Damage      float64
 	AttackRange float64
+	SightRange  float64 // chase distance (0 = default 6.5)
 	AttackTimer float64
 	AnimTimer   float64
 	State       string
@@ -126,11 +190,6 @@ func main() {
 		case "--import":
 			runImport()
 			return
-		case "--project":
-			if len(os.Args) < 3 {
-				log.Fatal("usage: aiengine.exe --project <project-name-or-path>")
-			}
-			activeProjectDir = normalizeProjectArg(os.Args[2])
 		case "--help", "-h":
 			fmt.Println("AIEngine")
 			fmt.Println("  aiengine.exe            run game + cheats")
@@ -138,17 +197,27 @@ func main() {
 			fmt.Println("  aiengine.exe --build    pack project to .aiepack")
 			fmt.Println("  aiengine.exe --import <.aiepack>  unpack project")
 			fmt.Println("  aiengine.exe --editor   launch editor (TBD)")
+			fmt.Println("Launch options (combinable):")
+			fmt.Println("  --screenshot <file.png> [--frames N]  save frame N (default 60) and quit")
+			fmt.Println("  --frames N              quit after N frames (smoke test)")
+			fmt.Println("  --exec \"cmd; cmd\"       console commands after start, e.g. \"god; tp 3 4\"")
 			return
-		default:
-			fmt.Fprintf(os.Stderr, "unknown flag: %s (use --help)\n", os.Args[1])
-			os.Exit(1)
 		}
 	}
 
-	runtime.LockOSThread()
-	useExecutableDirectoryWhenNeeded(true)
+	opts, err := parseRunOptions(os.Args[1:])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if opts.project != "" {
+		activeProjectDir = normalizeProjectArg(opts.project)
+	}
 
-	app := &App{}
+	runtime.LockOSThread()
+	useExecutableDirectoryWhenNeeded(opts.project == "")
+
+	app := &App{opts: opts}
 
 	if err := app.init(); err != nil {
 		log.Fatalf("AIEngine initialization failed: %v", err)
@@ -429,8 +498,19 @@ func (app *App) init() error {
 	}
 
 	// --- Map & Player ---
-	mapData := createTestMap()
-	app.player = renderer.NewPlayerState(2.5, 2.5, 0.0)
+	var mapData *renderer.MapData
+	var lv *level.Level
+	if levelRuntimeEnabled() {
+		lv, err = loadLevelFile()
+		if err != nil {
+			return fmt.Errorf("level: %w", err)
+		}
+		mapData = lv.Map
+		app.player = renderer.NewPlayerState(lv.SpawnX, lv.SpawnY, lv.SpawnAngle)
+	} else {
+		mapData = createTestMap()
+		app.player = renderer.NewPlayerState(2.5, 2.5, 0.0)
+	}
 
 	// --- Raycaster ---
 	app.raycaster = renderer.NewRaycaster(mapData, app.player, app.texManager)
@@ -438,6 +518,38 @@ func (app *App) init() error {
 		return fmt.Errorf("raycaster init: %w", err)
 	}
 
+	if lv != nil {
+		if err := app.startLevel(lv); err != nil {
+			return err
+		}
+	} else {
+		app.initDemoContent()
+	}
+
+	// --- GLFW callbacks ---
+	window.SetKeyCallback(app.keyCallback)
+	window.SetCharCallback(app.charCallback)
+	window.SetMouseButtonCallback(app.mouseButtonCallback)
+	window.SetSizeCallback(app.sizeCallback)
+	window.SetCloseCallback(func(w *glfw.Window) {
+		w.SetShouldClose(true)
+	})
+	window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
+
+	for _, cmd := range strings.Split(app.opts.exec, ";") {
+		if cmd = strings.TrimSpace(cmd); cmd != "" {
+			log.Printf("[exec] %s -> %s", cmd, systems.ExecuteCommand(app.console, cmd))
+		}
+	}
+
+	app.lastFrameTime = time.Now()
+	log.Println("AIEngine initialized successfully.")
+	return nil
+}
+
+// initDemoContent sets up the legacy hard-coded demo sandbox (projects
+// without RUNTIME level).
+func (app *App) initDemoContent() {
 	// --- Sprites & Effects ---
 	app.sprites = []*renderer.Sprite{
 		{X: 4.5, Y: 3.5, Z: 0, Scale: 0.7, TexName: "sprite_prop", Alpha: 1.0, Active: true, EntityID: "prop1"},
@@ -470,20 +582,6 @@ func (app *App) init() error {
 
 	// Emit onStart event.
 	app.scriptEngine.Emit("onStart")
-
-	// --- GLFW callbacks ---
-	window.SetKeyCallback(app.keyCallback)
-	window.SetCharCallback(app.charCallback)
-	window.SetMouseButtonCallback(app.mouseButtonCallback)
-	window.SetSizeCallback(app.sizeCallback)
-	window.SetCloseCallback(func(w *glfw.Window) {
-		w.SetShouldClose(true)
-	})
-	window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
-
-	app.lastFrameTime = time.Now()
-	log.Println("AIEngine initialized successfully.")
-	return nil
 }
 
 // createTestMap builds a simple test map for the raycaster.
@@ -591,14 +689,31 @@ func (app *App) spawnDemoEnemies() {
 func (app *App) run() {
 	for !app.window.ShouldClose() {
 		app.calculateDeltaTime()
+		app.trackFPS(app.deltaTime)
 
 		glfw.PollEvents()
+		if app.restartRequested {
+			app.restartLevel()
+		}
 		app.handleInput()
 
 		if !app.paused {
 			app.update(app.deltaTime)
+			if app.jsBridge != nil {
+				app.jsBridge.Tick(app.deltaTime)
+			}
 		}
 		app.render()
+
+		app.frameCount++
+		if app.opts.frames > 0 && app.frameCount >= app.opts.frames {
+			if app.opts.screenshot != "" {
+				if err := app.saveScreenshot(app.opts.screenshot); err != nil {
+					log.Printf("Screenshot failed: %v", err)
+				}
+			}
+			app.window.SetShouldClose(true)
+		}
 
 		// CRITICAL: Update input state at END of frame, so IsJustPressed
 		// sees the difference between previous (last frame) and held (just set by PollEvents).
@@ -608,6 +723,17 @@ func (app *App) run() {
 		app.scriptEngine.TickTimers()
 
 		app.window.SwapBuffers()
+	}
+}
+
+// trackFPS keeps a once-per-second FPS estimate and total run time.
+func (app *App) trackFPS(dt float64) {
+	app.totalTime += dt
+	app.fpsTimer += dt
+	app.fpsFrames++
+	if app.fpsTimer >= 1 {
+		app.fps = float64(app.fpsFrames) / app.fpsTimer
+		app.fpsTimer, app.fpsFrames = 0, 0
 	}
 }
 
@@ -643,6 +769,14 @@ func (app *App) handleInput() {
 
 	// When paused, ignore all gameplay input.
 	if app.paused {
+		return
+	}
+
+	// Level end screen: only restart is accepted.
+	if app.levelEnded() {
+		if app.restartPressed() {
+			app.restartLevel()
+		}
 		return
 	}
 
@@ -682,12 +816,21 @@ func (app *App) update(dt float64) {
 	if app.console != nil && app.console.Open {
 		return
 	}
+	if app.levelEnded() {
+		return
+	}
+	if app.game == nil {
+		app.scriptEngine.TickMessage(dt)
+	}
 
 	speed := app.player.MoveSpeed * app.player.SpeedMultiplier() * dt
 
 	moveX := 0.0
 	moveY := 0.0
 
+	if app.scriptEngine.PlayerFrozen {
+		speed = 0
+	}
 	if app.inputManager.IsPressed("move_forward") {
 		moveX += math.Cos(app.player.Angle) * speed
 		moveY += math.Sin(app.player.Angle) * speed
@@ -765,6 +908,9 @@ func (app *App) update(dt float64) {
 	moving := moveX != 0 || moveY != 0
 	app.updatePlayerAnimation(dt, moving)
 	app.updateDemoEnemies(dt)
+	if app.game != nil {
+		app.updateLevel(dt)
+	}
 }
 
 func (app *App) updatePlayerAnimation(dt float64, moving bool) {
@@ -835,7 +981,7 @@ func (app *App) updateDemoEnemies(dt float64) {
 					app.scriptEngine.SetPlayerHP(app.scriptEngine.GetPlayerHP() - enemy.Damage)
 				}
 			}
-		} else if dist < 6.5 {
+		} else if dist < enemy.sightRange() && (app.game == nil || !app.hasWallBetween(enemy.Sprite.X, enemy.Sprite.Y, app.player.X, app.player.Y)) {
 			enemy.State = "walk"
 			if dist > 0.001 {
 				stepX := (dx / dist) * enemy.Speed * dt
@@ -862,6 +1008,13 @@ func (app *App) updateDemoEnemies(dt float64) {
 			}
 		}
 	}
+}
+
+func (e *DemoEnemy) sightRange() float64 {
+	if e.SightRange > 0 {
+		return e.SightRange
+	}
+	return 6.5
 }
 
 func (app *App) enemyAnimFrame(enemy *DemoEnemy) string {
@@ -988,6 +1141,12 @@ func (app *App) render() {
 	app.raycaster.HUDMaxHP = int(app.scriptEngine.PlayerMaxHP)
 	app.raycaster.HUDAmmo = app.scriptEngine.HUDAmmo
 	app.raycaster.HUDAmmoMax = app.scriptEngine.HUDAmmoMax
+	app.raycaster.HUDMessage = app.scriptEngine.CurrentMessage()
+	lines := app.scriptEngine.HUDLines()
+	if app.console != nil && app.console.CheatEnabled(systems.CheatFPS) {
+		lines = append(lines, fmt.Sprintf("FPS %.0f", app.fps))
+	}
+	app.raycaster.HUDLines = lines
 
 	// Sync console state.
 	if app.console != nil {
@@ -1002,6 +1161,13 @@ func (app *App) render() {
 
 // shutdown cleans up resources.
 func (app *App) shutdown() {
+	if app.frameCount > 0 && app.totalTime > 0 {
+		var ms runtime.MemStats
+		runtime.ReadMemStats(&ms)
+		log.Printf("[Perf] %d frames in %.1fs: avg %.1f FPS (%.2f ms/frame), heap %.1f MB, sys %.1f MB",
+			app.frameCount, app.totalTime, float64(app.frameCount)/app.totalTime,
+			1000*app.totalTime/float64(app.frameCount), float64(ms.HeapAlloc)/1e6, float64(ms.Sys)/1e6)
+	}
 	if app.audioSys != nil {
 		app.audioSys.Shutdown()
 	}
@@ -1182,6 +1348,22 @@ func (app *App) consoleCommand(cmd string, args []string) string {
 			return "map <name>"
 		}
 		return fmt.Sprintf("map change to '%s' (not yet implemented)", name)
+
+	case "lua":
+		if app.luaBridge == nil {
+			return "lua not initialized"
+		}
+		if err := app.luaBridge.DoString(strings.Join(args, " ")); err != nil {
+			return err.Error()
+		}
+		return "ok"
+
+	case "restart":
+		if app.game == nil {
+			return "restart needs RUNTIME level"
+		}
+		app.restartRequested = true
+		return "restarting level"
 
 	case "hltest":
 		if app.humanLoop == nil {
