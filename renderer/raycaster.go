@@ -32,6 +32,12 @@ type MapData struct {
 	Grid   [][]MapCell
 	Width  int
 	Height int
+
+	// Optional per-cell layers (row-major, Width*Height; nil = defaults),
+	// see heights.go.
+	Floor []float64 // floor height (default 0)
+	Ceil  []float64 // ceiling height (default 1)
+	Side  []MapCell // texture of the cell's step faces (default stone)
 }
 
 func NewMapData(grid [][]MapCell) *MapData {
@@ -78,6 +84,17 @@ type PlayerState struct {
 	Stance    Stance  // current posture
 	EyeOffset float64 // smoothed eye-height offset for the current stance (<= 0)
 
+	// Ground is the absolute height of the floor the player stands on (or
+	// falls towards); Z is measured from it. StepOffset smooths the camera
+	// after walking up a step (negative, eases back to 0). LastFall is the
+	// height of the last completed fall (set on landing; the host reads and
+	// clears it for fall damage).
+	Ground     float64
+	StepOffset float64
+	LastFall   float64
+	airPeak    float64 // highest absolute feet height of the current flight
+	jumpTop    float64 // absolute feet height where the current jump stops rising
+
 	FOV       float64
 	MoveSpeed float64
 	RotSpeed  float64
@@ -113,6 +130,7 @@ const (
 	eyeCrouch = -0.18 // crouched: lower camera
 	eyeProne  = -0.34 // prone: lowest camera
 	eyeLerp   = 10.0  // eye-height smoothing rate (per second)
+	stepLerp  = 18.0  // step-up camera smoothing rate (per second)
 
 	speedCrouch = 0.5  // movement speed multiplier while crouched
 	speedProne  = 0.28 // movement speed multiplier while prone
@@ -124,6 +142,8 @@ func (p *PlayerState) Jump() {
 	if p.Grounded && p.Stance != StanceProne {
 		p.VelZ = JumpVelocity
 		p.Grounded = false
+		p.airPeak = p.Ground + p.Z
+		p.jumpTop = p.Ground + p.Z + MaxJumpZ
 	}
 }
 
@@ -160,7 +180,69 @@ func (p *PlayerState) SpeedMultiplier() float64 {
 // CameraHeight is the total camera height above the floor: jump height plus the
 // (negative) stance eye offset. Used for distance-scaled vertical parallax.
 func (p *PlayerState) CameraHeight() float64 {
-	return p.Z + p.EyeOffset
+	return p.Z + p.EyeOffset + p.StepOffset
+}
+
+// Feet is the absolute height of the player's feet.
+func (p *PlayerState) Feet() float64 { return p.Ground + p.Z }
+
+// EyeZ is the absolute camera height (feet + eye height + stance/step).
+func (p *PlayerState) EyeZ() float64 { return p.Ground + EyeHeight + p.CameraHeight() }
+
+// Headroom is the free height the current stance needs.
+func (p *PlayerState) Headroom() float64 {
+	switch p.Stance {
+	case StanceCrouch:
+		return HeadroomCrouch
+	case StanceProne:
+		return HeadroomProne
+	default:
+		return HeadroomStand
+	}
+}
+
+// SetGround tells the player the floor height under it after moving.
+// Stepping up (the host's collision allows it up to MaxStepUp, or onto a
+// ledge below the feet while jumping) lands the player there with a smooth
+// camera; stepping off a ledge starts a fall.
+func (p *PlayerState) SetGround(h float64) {
+	if h == p.Ground {
+		return
+	}
+	feet := p.Ground + p.Z
+	if h > feet { // walked up a step
+		p.StepOffset -= h - feet
+		p.StepOffset = math.Max(p.StepOffset, -2*MaxStepUp)
+		p.Ground, p.Z = h, 0
+		if !p.Grounded {
+			p.land()
+		}
+		return
+	}
+	// Floor at or below the feet: the feet stay where they are.
+	p.Ground, p.Z = h, feet-h
+	if p.Z <= 1e-9 {
+		p.Z = 0
+		return
+	}
+	if p.Grounded {
+		p.Grounded = false
+		p.VelZ = 0
+		p.airPeak = feet
+		p.jumpTop = feet
+	}
+}
+
+// PlaceAt puts the player on the ground at height h (spawn, teleport): no
+// fall, no camera smoothing.
+func (p *PlayerState) PlaceAt(h float64) {
+	p.Ground, p.Z, p.VelZ, p.StepOffset, p.LastFall = h, 0, 0, 0, 0
+	p.Grounded = true
+}
+
+func (p *PlayerState) land() {
+	p.LastFall = math.Max(0, p.airPeak-(p.Ground+p.Z))
+	p.Z, p.VelZ, p.Grounded = 0, 0, true
 }
 
 // AddPitch adjusts the vertical look angle and clamps it to the allowed range.
@@ -185,20 +267,27 @@ func (p *PlayerState) UpdateVertical(dt float64) {
 		t = 1
 	}
 	p.EyeOffset += (target - p.EyeOffset) * t
+	// Ease the camera back up after a step (fast, ~0.1 s).
+	if p.StepOffset != 0 {
+		p.StepOffset -= p.StepOffset * math.Min(1, stepLerp*dt)
+		if math.Abs(p.StepOffset) < 1e-3 {
+			p.StepOffset = 0
+		}
+	}
 
 	if p.Grounded {
 		return
 	}
 	p.VelZ -= GravityAccel * dt
 	p.Z += p.VelZ * dt
-	if p.Z >= MaxJumpZ && p.VelZ > 0 {
-		p.Z = MaxJumpZ
+	if p.VelZ > 0 && p.Ground+p.Z >= p.jumpTop {
+		p.Z = p.jumpTop - p.Ground
 		p.VelZ = 0
 	}
+	p.airPeak = math.Max(p.airPeak, p.Ground+p.Z)
 	if p.Z <= 0 {
 		p.Z = 0
-		p.VelZ = 0
-		p.Grounded = true
+		p.land()
 	}
 }
 
@@ -240,8 +329,12 @@ type Raycaster struct {
 	wallVAO    uint32
 	wallVBO    uint32
 
-	// Z-buffer for sprite occlusion.
+	// Per column: distance of the solid wall hit (0 = none).
 	zBuffer []float64
+	// Per column: open-window log for sprite clipping (see cast.go).
+	clips       [][]clipEntry
+	rowK        []float64
+	spriteItems []spriteItem
 
 	// Effects (applied via simple post-processing).
 	effects *EffectsConfig
@@ -420,7 +513,8 @@ func (rc *Raycaster) Render(sprites []*Sprite) {
 	gl.ClearColor(0, 0, 0, 1)
 	gl.Clear(gl.COLOR_BUFFER_BIT)
 
-	// 1. CPU: world (floor, ceiling, walls, colour effects) and the UI layer.
+	// 1. CPU: world (floor, ceiling, walls, sprites, colour effects) and
+	// the UI layer.
 	rc.renderToBuffer(sprites)
 	rc.renderUI()
 
@@ -428,9 +522,7 @@ func (rc *Raycaster) Render(sprites []*Sprite) {
 	gl.Disable(gl.DEPTH_TEST)
 	rc.drawLayer(rc.screenTex, rc.pixels, false)
 
-	// 3. Sprites and the first-person weapon (GPU, depth-tested against the
-	// CPU z-buffer).
-	rc.drawSprites(sprites)
+	// 3. The first-person weapon (GPU quad).
 	if !rc.HideHUD && rc.OverlayTitle == "" {
 		rc.DrawHUDWeapon()
 	}
@@ -726,163 +818,6 @@ func (rc *Raycaster) drawConsole(sw, sh int) {
 		line := rc.ConsoleHistory[len(rc.ConsoleHistory)-visible+i]
 		DrawTextScaled(rc.ui, sw, sh, 8*u, sh-lineH-4*u-(visible-i)*lineH, line, white, u)
 	}
-}
-
-// drawSprites renders sprites as colored columns using the Z-buffer.
-// Uses angular approach: compute angle to sprite, delta from player angle,
-// then perpendicular distance for Z-buffer and screen height.
-func (rc *Raycaster) drawSprites(sprites []*Sprite) {
-	if len(sprites) == 0 {
-		return
-	}
-	sw := float64(rc.screenW)
-	sh := float64(rc.screenH)
-	halfFOV := rc.fov() / 2.0
-
-	// Pre-compute sprite data: Euclidean distance + perpendicular distance.
-	type spriteData struct {
-		s        *Sprite
-		euclDist float64 // Euclidean distance (for sorting)
-		perpDist float64 // perpendicular distance (for Z-buffer & height)
-		screenX  float64 // screen X center
-		angle    float64 // world angle to sprite
-	}
-	var sorted []spriteData
-
-	for _, s := range sprites {
-		if !s.Active {
-			continue
-		}
-		dx := s.X - rc.Player.X
-		dy := s.Y - rc.Player.Y
-		euclDist := math.Sqrt(dx*dx + dy*dy)
-		angle := math.Atan2(dy, dx)
-
-		// Delta angle (normalized to [-PI, PI]).
-		delta := angle - rc.Player.Angle
-		for delta > math.Pi {
-			delta -= 2 * math.Pi
-		}
-		for delta < -math.Pi {
-			delta += 2 * math.Pi
-		}
-
-		// Sprite must be within FOV.
-		if math.Abs(delta) > halfFOV+0.2 {
-			continue
-		}
-
-		// Perpendicular distance (projection onto view direction).
-		perpDist := euclDist * math.Cos(delta)
-		if perpDist < 0.1 {
-			continue
-		}
-
-		// Screen X: map angular offset to screen columns.
-		// Same flat camera-plane projection as the walls.
-		screenX := (sw / 2.0) + math.Tan(delta)*Focal(sw, halfFOV)
-
-		sorted = append(sorted, spriteData{
-			s:        s,
-			euclDist: euclDist,
-			perpDist: perpDist,
-			screenX:  screenX,
-			angle:    angle,
-		})
-	}
-
-	// Sort by perpendicular distance: FAR → NEAR (paint far sprites first).
-	for i := 0; i < len(sorted); i++ {
-		for j := i + 1; j < len(sorted); j++ {
-			if sorted[i].perpDist < sorted[j].perpDist {
-				sorted[i], sorted[j] = sorted[j], sorted[i]
-			}
-		}
-	}
-
-	rc.spriteProg.Use()
-	// The quad spans aPos.y 0..1 from the top edge down, like the HUD weapon:
-	// position by the top edge with full height, texture upright.
-	rc.spriteProg.SetUniform1i("uFlipY", 1)
-	gl.Enable(gl.BLEND)
-	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-	gl.Disable(gl.DEPTH_TEST)
-
-	for _, sd := range sorted {
-		s := sd.s
-		perpDist := sd.perpDist
-
-		// Sprite height on screen (proportional to 1/distance).
-		focal := Focal(sw, halfFOV)
-		spriteHeight := (focal / perpDist) * s.Scale
-		spriteWidth := spriteHeight // square sprites
-
-		// Vertical center offset by sprite Z, plus the camera's vertical shift
-		// (jump + stance parallax and pitch) so grounded sprites stay anchored
-		// to the floor and track the player's vertical aim.
-		camShift := rc.Player.CameraHeight()*focal/perpDist + rc.Player.Pitch*sh
-		drawStartY := (sh-spriteHeight)/2.0 + s.Z*focal/perpDist + camShift
-		drawEndY := drawStartY + spriteHeight
-
-		// Horizontal bounds.
-		drawStartX := sd.screenX - spriteWidth/2.0
-		drawEndX := sd.screenX + spriteWidth/2.0
-
-		// Clipping.
-		if drawEndX < 0 || drawStartX >= sw || drawEndY < 0 || drawStartY >= sh {
-			continue
-		}
-
-		// Distance-based shading.
-		shade := float32(1.0)
-		if perpDist > 1.0 {
-			shade = float32(1.0 / math.Sqrt(perpDist))
-		}
-
-		tex := rc.TexManager.Get(s.TexName)
-		texID := uint32(0)
-		if tex != nil {
-			texID = tex.ID
-		}
-
-		// Render sprite column by column with Z-buffer check.
-		startCol := int(math.Max(0, drawStartX))
-		endCol := int(math.Min(sw-1, drawEndX))
-
-		for stripe := startCol; stripe <= endCol; stripe++ {
-			// Z-buffer: skip if wall at this column is closer.
-			if perpDist > rc.zBuffer[stripe] && rc.zBuffer[stripe] > 0 {
-				continue
-			}
-
-			texX := (float64(stripe) - drawStartX) / spriteWidth
-			if texX < 0 {
-				texX = 0
-			}
-			if texX > 1.0 {
-				texX = 1.0
-			}
-
-			rc.spriteProg.SetUniform2f("uScreenSize", float32(sw), float32(sh))
-			rc.spriteProg.SetUniform2f("uSpritePos", float32(stripe), float32(drawStartY))
-			rc.spriteProg.SetUniform2f("uSpriteSize", 1.0, float32(drawEndY-drawStartY))
-			rc.spriteProg.SetUniform1f("uAlpha", s.Alpha)
-			rc.spriteProg.SetUniform1f("uShade", shade)
-			rc.spriteProg.SetUniform1f("uTexX", float32(texX))
-			rc.spriteProg.SetUniform1i("uUseFixedTexX", 1)
-
-			gl.ActiveTexture(gl.TEXTURE0)
-			gl.BindTexture(gl.TEXTURE_2D, texID)
-			rc.spriteProg.SetUniform1i("uTexture", 0)
-
-			gl.BindVertexArray(rc.wallVAO)
-			gl.DrawArrays(gl.TRIANGLES, 0, 6)
-		}
-	}
-
-	gl.BindVertexArray(0)
-	gl.Disable(gl.BLEND)
-	gl.Enable(gl.DEPTH_TEST)
 }
 
 // DrawHUDWeapon renders the player's animated first-person sprite over the HUD.

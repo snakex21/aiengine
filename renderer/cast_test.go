@@ -113,3 +113,11 @@ func BenchmarkRender2160p(b *testing.B) {
 		rc.renderToBuffer(nil)
 	}
 }
+
+func BenchmarkRender1440p(b *testing.B) {
+	rc := testRaycaster(2560, 1440)
+	rc.FloorTexture = "floor_t"
+	for i := 0; i < b.N; i++ {
+		rc.renderToBuffer(nil)
+	}
+}

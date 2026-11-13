@@ -1,13 +1,29 @@
-// renderer/cast.go — parallel column caster: ceiling, walls and floor
-// (flat colours or textures) for each screen column, spread over all CPU
-// cores. Columns are independent, so each worker owns a contiguous range of
-// columns of the pixel buffer and z-buffer.
+// renderer/cast.go — parallel column caster for the grid map with per-cell
+// floor and ceiling heights, plus CPU sprites clipped against the result.
+//
+// Each screen column is cast independently (columns are spread over all CPU
+// cores). A column keeps an open window of rows [top, bot) that nothing
+// nearer has covered yet. Walking the grid front to back, at every cell
+// boundary it:
+//
+//  1. fills the current cell's ceiling (rows above the ceiling's far edge)
+//     and floor (rows below the floor's far edge) and shrinks the window;
+//  2. if the next cell is solid, fills the rest of the window with the wall
+//     and stops;
+//  3. otherwise draws an upper step face where the next ceiling is lower
+//     and a lower step face where the next floor is higher, shrinking the
+//     window again, and stops once it is closed.
+//
+// After each boundary the window is logged (distance, top, bot); sprites use
+// the window of the last boundary nearer than themselves, so they are hidden
+// behind ledges, low ceilings and nearer floors exactly like walls are.
 
 package renderer
 
 import (
 	"math"
 	"runtime"
+	"sort"
 	"sync"
 )
 
@@ -66,6 +82,45 @@ func parallel(n int, fn func(lo, hi int)) {
 	wg.Wait()
 }
 
+const (
+	maxCastSteps = 256  // cells a ray may cross
+	nearPlane    = 0.02 // smallest boundary distance (avoids /0 at a cell edge)
+)
+
+// Distance shading in 8.8 fixed point: 256 up to distance 1, then 1/sqrt(d).
+// Indexed by distance*shadeRes (clamped to the last entry).
+const shadeRes = 16
+
+var shadeLUT = func() [64 * shadeRes]int32 {
+	var t [64 * shadeRes]int32
+	for i := range t {
+		d := float64(i) / shadeRes
+		s := 1.0
+		if d > 1 {
+			s = 1 / math.Sqrt(d)
+		}
+		t[i] = int32(s*256 + 0.5)
+	}
+	return t
+}()
+
+func distShade(d float64) int32 {
+	i := int(d * shadeRes)
+	if i >= len(shadeLUT) {
+		i = len(shadeLUT) - 1
+	}
+	if i < 0 {
+		i = 0
+	}
+	return shadeLUT[i]
+}
+
+// clipEntry is the column's open window after a cell boundary at dist.
+type clipEntry struct {
+	dist     float64
+	top, bot int32
+}
+
 // frame holds per-frame constants shared by all column workers.
 type frame struct {
 	sw, sh            int
@@ -75,17 +130,31 @@ type frame struct {
 	dirX, dirY        float64 // view direction
 	planeX, planeY    float64 // camera plane (half width at distance 1)
 	horizon           float64 // screen row of the horizon (float)
-	pitchShift        float64
-	camHeight         float64
+	eye               float64 // absolute camera height
 	ceil, flr         [4]uint8
 	floorTex, ceilTex *Texture2D
 	wallTex           [5]*Texture2D // indexed by MapCell
-	rowDist, rowShade []float64     // per screen row: floor/ceiling distance and shade
-	px, py, angle     float64
+	rowK              []float64     // per row: focal / |row centre - horizon|
+	px, py            float64
 }
 
-// renderToBuffer fills rc.pixels with ceiling, walls and floor, then applies
-// the colour effects.
+// rowAt is the (fractional) screen row of world height h at distance d.
+func (f *frame) rowAt(h, d float64) float64 { return f.horizon + (f.eye-h)*f.focal/d }
+
+// rowOf is the first row whose centre lies at or below yf, clamped to the
+// screen: spans [rowOf(a), rowOf(b)) tile the screen without gaps.
+func (f *frame) rowOf(yf float64) int {
+	if yf < 0 {
+		return 0
+	}
+	if yf > f.fsh {
+		return f.sh
+	}
+	return int(math.Ceil(yf - 0.5))
+}
+
+// renderToBuffer fills rc.pixels with ceilings, walls, floors and sprites,
+// then applies the colour effects.
 func (rc *Raycaster) renderToBuffer(sprites []*Sprite) {
 	f := &frame{sw: int(rc.screenW), sh: int(rc.screenH)}
 	f.fsw, f.fsh = float64(f.sw), float64(f.sh)
@@ -94,11 +163,10 @@ func (rc *Raycaster) renderToBuffer(sprites []*Sprite) {
 	f.dirX, f.dirY = math.Cos(rc.Player.Angle), math.Sin(rc.Player.Angle)
 	t := math.Tan(f.halfFOV)
 	f.planeX, f.planeY = -f.dirY*t, f.dirX*t
-	f.pitchShift = rc.Player.Pitch * f.fsh
-	f.horizon = f.fsh/2 + f.pitchShift
-	f.camHeight = rc.Player.CameraHeight()
+	f.horizon = f.fsh/2 + rc.Player.Pitch*f.fsh
+	f.eye = rc.Player.EyeZ()
 	f.ceil, f.flr = colorToRGBA(rc.CeilColor), colorToRGBA(rc.FloorColor)
-	f.px, f.py, f.angle = rc.Player.X, rc.Player.Y, rc.Player.Angle
+	f.px, f.py = rc.Player.X, rc.Player.Y
 	if rc.FloorTexture != "" {
 		f.floorTex = usableTex(rc.TexManager.Get(rc.FloorTexture))
 	}
@@ -108,28 +176,19 @@ func (rc *Raycaster) renderToBuffer(sprites []*Sprite) {
 	for cell, name := range map[MapCell]string{CellWall1: "brick", CellWall2: "stone", CellWall3: "metal", CellDoor: "wood"} {
 		f.wallTex[cell] = usableTex(rc.TexManager.Get(name))
 	}
-	// Floor/ceiling distance and shade depend only on the row: compute once.
-	if f.floorTex != nil || f.ceilTex != nil {
-		f.rowDist = make([]float64, f.sh)
-		f.rowShade = make([]float64, f.sh)
-		ceilK := f.focal * (0.5 - f.camHeight)
-		floorK := f.focal * (0.5 + f.camHeight)
-		for y := 0; y < f.sh; y++ {
-			var d float64
-			if fy := float64(y); fy < f.horizon {
-				d = ceilK / (f.horizon - fy)
-			} else {
-				d = floorK / (fy + 0.5 - f.horizon)
-			}
-			f.rowDist[y] = d
-			f.rowShade[y] = 0.85
-			if d > 1 {
-				f.rowShade[y] = 0.85 / math.Sqrt(d)
-			}
-		}
+	if len(rc.rowK) != f.sh {
+		rc.rowK = make([]float64, f.sh)
+	}
+	f.rowK = rc.rowK
+	for y := range f.rowK {
+		dy := math.Abs(float64(y) + 0.5 - f.horizon)
+		f.rowK[y] = f.focal / math.Max(dy, 1e-3)
 	}
 	if len(rc.zBuffer) != f.sw {
 		rc.zBuffer = make([]float64, f.sw)
+	}
+	if len(rc.clips) != f.sw {
+		rc.clips = make([][]clipEntry, f.sw)
 	}
 
 	parallel(f.sw, func(lo, hi int) {
@@ -137,6 +196,7 @@ func (rc *Raycaster) renderToBuffer(sprites []*Sprite) {
 			rc.castColumn(f, x)
 		}
 	})
+	rc.drawSpritesCPU(f, sprites)
 
 	rc.applyScreenEffects(f.sw, f.sh)
 }
@@ -151,16 +211,16 @@ func usableTex(t *Texture2D) *Texture2D {
 }
 
 func (rc *Raycaster) castColumn(f *frame, x int) {
-	sw, sh := f.sw, f.sh
+	m := rc.Map
 	cameraX := 2.0*float64(x)/f.fsw - 1.0
 	// Rays through a flat camera plane (not evenly spaced angles), so that
 	// the DDA's distance along the un-normalised ray is the perpendicular
 	// distance to the plane: straight walls stay straight (no fisheye bow).
-	rayDirX := f.dirX + f.planeX*cameraX
-	rayDirY := f.dirY + f.planeY*cameraX
+	rdx := f.dirX + f.planeX*cameraX
+	rdy := f.dirY + f.planeY*cameraX
 
 	mapX, mapY := int(math.Floor(f.px)), int(math.Floor(f.py))
-	deltaDistX, deltaDistY := math.Abs(1/rayDirX), math.Abs(1/rayDirY)
+	deltaDistX, deltaDistY := math.Abs(1/rdx), math.Abs(1/rdy)
 	if math.IsInf(deltaDistX, 0) {
 		deltaDistX = 1e30
 	}
@@ -169,146 +229,317 @@ func (rc *Raycaster) castColumn(f *frame, x int) {
 	}
 	var sideDistX, sideDistY float64
 	var stepX, stepY int
-	if rayDirX < 0 {
+	if rdx < 0 {
 		stepX, sideDistX = -1, (f.px-float64(mapX))*deltaDistX
 	} else {
 		stepX, sideDistX = 1, (float64(mapX)+1-f.px)*deltaDistX
 	}
-	if rayDirY < 0 {
+	if rdy < 0 {
 		stepY, sideDistY = -1, (f.py-float64(mapY))*deltaDistY
 	} else {
 		stepY, sideDistY = 1, (float64(mapY)+1-f.py)*deltaDistY
 	}
 
-	hit, side := false, 0
-	var wallType MapCell
-	for step := 0; step < 96; step++ {
+	clips := rc.clips[x][:0]
+	defer func() { rc.clips[x] = clips }()
+	rc.zBuffer[x] = 0
+	top, bot := 0, f.sh
+	curF, curC := m.FloorAt(mapX, mapY), m.CeilAt(mapX, mapY)
+
+	for i := 0; i < maxCastSteps; i++ {
+		var d float64
+		side := 0
 		if sideDistX < sideDistY {
+			d = sideDistX
 			sideDistX += deltaDistX
 			mapX += stepX
-			side = 0
 		} else {
+			d = sideDistY
 			sideDistY += deltaDistY
 			mapY += stepY
 			side = 1
 		}
-		if cell := rc.Map.GetCell(mapX, mapY); cell != CellEmpty {
-			hit, wallType = true, cell
-			break
-		}
-	}
+		d = math.Max(d, nearPlane)
 
-	// Wall span (unclamped float rows) — the floor/ceiling fill the rest.
-	wallTop, wallBottom := f.horizon, f.horizon
-	var perpDist, wallHeight, vOffset float64
-	if hit {
+		// The current cell's ceiling and floor up to this boundary.
+		if e := min(f.rowOf(f.rowAt(curC, d)), bot); e > top {
+			rc.drawCeil(f, x, top, e, curC, rdx, rdy)
+			top = e
+		}
+		if s := max(f.rowOf(f.rowAt(curF, d)), top); s < bot {
+			rc.drawFloor(f, x, s, bot, curF, rdx, rdy)
+			bot = s
+		}
+
+		var wallX float64
 		if side == 0 {
-			perpDist = sideDistX - deltaDistX
+			wallX = f.py + d*rdy
 		} else {
-			perpDist = sideDistY - deltaDistY
+			wallX = f.px + d*rdx
 		}
-		perpDist = math.Max(perpDist, 0.05) // near plane
-		wallHeight = f.focal / perpDist
-		vOffset = f.camHeight*wallHeight + f.pitchShift
-		wallTop = (f.fsh-wallHeight)/2 + vOffset
-		wallBottom = wallTop + wallHeight
-		rc.zBuffer[x] = perpDist
-	} else {
-		rc.zBuffer[x] = 0
-	}
+		wallX -= math.Floor(wallX)
 
-	drawStart := clampInt(int(wallTop), 0, sh)
-	drawEnd := clampInt(int(wallTop)+int(wallHeight), 0, sh)
-	if !hit {
-		drawStart = clampInt(int(f.horizon), 0, sh)
-		drawEnd = drawStart
-	}
-
-	// Ceiling.
-	for y := 0; y < drawStart; y++ {
-		idx := (y*sw + x) * 4
-		if f.ceilTex == nil || float64(y) >= f.horizon {
-			copy(rc.pixels[idx:idx+4], f.ceil[:])
-			continue
+		cell := m.GetCell(mapX, mapY)
+		if cell != CellEmpty {
+			if top < bot {
+				rc.drawWall(f, x, top, bot, d, cell, side, wallX)
+			}
+			rc.zBuffer[x] = d
+			clips = append(clips, clipEntry{d, int32(top), int32(top)})
+			return
 		}
-		d := f.rowDist[y]
-		rc.planePixel(idx, f.ceilTex, f.px+rayDirX*d, f.py+rayDirY*d, f.rowShade[y])
-	}
-	// Floor.
-	for y := drawEnd; y < sh; y++ {
-		idx := (y*sw + x) * 4
-		if f.floorTex == nil || float64(y) <= f.horizon {
-			copy(rc.pixels[idx:idx+4], f.flr[:])
-			continue
-		}
-		d := f.rowDist[y]
-		rc.planePixel(idx, f.floorTex, f.px+rayDirX*d, f.py+rayDirY*d, f.rowShade[y])
-	}
-	_ = wallBottom
-	if !hit {
-		return
-	}
 
-	// Wall.
-	var wallX float64
-	if side == 0 {
-		wallX = f.py + perpDist*rayDirY
-	} else {
-		wallX = f.px + perpDist*rayDirX
+		nF, nC := m.FloorAt(mapX, mapY), m.CeilAt(mapX, mapY)
+		if nC < curC { // upper step face (lower ceiling ahead)
+			if e := min(f.rowOf(f.rowAt(nC, d)), bot); e > top {
+				rc.drawWall(f, x, top, e, d, m.SideAt(mapX, mapY), side, wallX)
+				top = e
+			}
+		}
+		if nF > curF { // lower step face (higher floor ahead)
+			if s := max(f.rowOf(f.rowAt(nF, d)), top); s < bot {
+				rc.drawWall(f, x, s, bot, d, m.SideAt(mapX, mapY), side, wallX)
+				bot = s
+			}
+		}
+		clips = append(clips, clipEntry{d, int32(top), int32(bot)})
+		if top >= bot {
+			rc.zBuffer[x] = d
+			return
+		}
+		curF, curC = nF, nC
 	}
-	wallX -= math.Floor(wallX)
-	shade := 1.0
-	if perpDist > 1 {
-		shade = 1 / math.Sqrt(perpDist)
-	}
-	if side == 1 {
-		shade *= 0.7
-	}
-	var tex *Texture2D
-	if int(wallType) < len(f.wallTex) {
-		tex = f.wallTex[wallType]
-	}
-	if tex != nil {
-		texW, texH := int(tex.Width), int(tex.Height)
-		texX := int(wallX*float64(texW)) & (texW - 1)
-		step := float64(texH) / wallHeight
-		texPos := (float64(drawStart) - f.fsh/2 + wallHeight/2 - vOffset) * step
-		for y := drawStart; y < drawEnd; y++ {
-			texY := int(texPos) & (texH - 1)
-			texPos += step
-			src := (texY*texW + texX) * 4
-			dst := (y*sw + x) * 4
-			rc.pixels[dst] = uint8(float64(tex.Pixels[src]) * shade)
-			rc.pixels[dst+1] = uint8(float64(tex.Pixels[src+1]) * shade)
-			rc.pixels[dst+2] = uint8(float64(tex.Pixels[src+2]) * shade)
-			rc.pixels[dst+3] = 255
+	// Ran out of steps: the last cell's planes continue to the horizon.
+	h := min(max(f.rowOf(f.horizon), top), bot)
+	rc.drawCeil(f, x, top, h, curC, rdx, rdy)
+	rc.drawFloor(f, x, h, bot, curF, rdx, rdy)
+}
+
+// drawCeil fills rows [y0, y1) of column x with the ceiling plane at height h.
+func (rc *Raycaster) drawCeil(f *frame, x, y0, y1 int, h, rdx, rdy float64) {
+	rc.drawPlane(f, x, y0, y1, h-f.eye, f.ceilTex, f.ceil, rdx, rdy, true)
+}
+
+// drawFloor fills rows [y0, y1) of column x with the floor plane at height h.
+func (rc *Raycaster) drawFloor(f *frame, x, y0, y1 int, h, rdx, rdy float64) {
+	rc.drawPlane(f, x, y0, y1, f.eye-h, f.floorTex, f.flr, rdx, rdy, false)
+}
+
+// drawPlane draws a horizontal plane whose height differs from the eye by
+// dh (positive when the plane faces the camera). Rows on the wrong side of
+// the horizon, or without a texture, get the flat colour.
+func (rc *Raycaster) drawPlane(f *frame, x, y0, y1 int, dh float64, tex *Texture2D, flat [4]uint8, rdx, rdy float64, above bool) {
+	sw := f.sw
+	pix := rc.pixels
+	if tex == nil || dh <= 0 {
+		for y := y0; y < y1; y++ {
+			i := (y*sw + x) * 4
+			pix[i], pix[i+1], pix[i+2], pix[i+3] = flat[0], flat[1], flat[2], 255
 		}
 		return
 	}
-	wc := wallColors[wallType]
-	stripe := wallX * 255 * 0.3
-	r := uint8(float64(wc.R)*shade*0.7 + stripe)
-	g := uint8(float64(wc.G)*shade*0.7 + stripe)
-	b := uint8(float64(wc.B)*shade*0.7 + stripe)
-	for y := drawStart; y < drawEnd; y++ {
-		idx := (y*sw + x) * 4
-		rc.pixels[idx], rc.pixels[idx+1], rc.pixels[idx+2], rc.pixels[idx+3] = r, g, b, 255
+	tw, th := int(tex.Width), int(tex.Height)
+	fw, fh := float64(tw), float64(th)
+	for y := y0; y < y1; y++ {
+		i := (y*sw + x) * 4
+		if (float64(y)+0.5 < f.horizon) != above {
+			pix[i], pix[i+1], pix[i+2], pix[i+3] = flat[0], flat[1], flat[2], 255
+			continue
+		}
+		d := dh * f.rowK[y]
+		wx, wy := f.px+rdx*d, f.py+rdy*d
+		tx := int(wx*fw) & (tw - 1) // one repeat per cell (power-of-two wrap)
+		ty := int(wy*fh) & (th - 1)
+		src := (ty*tw + tx) * 4
+		s := distShade(d) * 218 >> 8 // floors and ceilings are a bit darker (0.85)
+		tp := tex.Pixels[src : src+3 : src+3]
+		pix[i] = uint8(int32(tp[0]) * s >> 8)
+		pix[i+1] = uint8(int32(tp[1]) * s >> 8)
+		pix[i+2] = uint8(int32(tp[2]) * s >> 8)
+		pix[i+3] = 255
 	}
 }
 
-// planePixel samples a floor/ceiling texture at world (wx, wy) with a
-// precomputed distance shade (one texture repeat per map cell).
-func (rc *Raycaster) planePixel(idx int, t *Texture2D, wx, wy, shade float64) {
-	tw, th := int(t.Width), int(t.Height)
-	tx := int((wx-math.Floor(wx))*float64(tw)) & (tw - 1)
-	ty := int((wy-math.Floor(wy))*float64(th)) & (th - 1)
-	src := (ty*tw + tx) * 4
-	px := t.Pixels[src : src+3 : src+3]
-	dst := rc.pixels[idx : idx+4 : idx+4]
-	dst[0] = uint8(float64(px[0]) * shade)
-	dst[1] = uint8(float64(px[1]) * shade)
-	dst[2] = uint8(float64(px[2]) * shade)
-	dst[3] = 255
+// drawWall fills rows [y0, y1) of column x with a wall face at distance d.
+// Textures are anchored to world height (one repeat per unit, top of a
+// classic 0..1 wall at v=0), so faces of different heights line up.
+func (rc *Raycaster) drawWall(f *frame, x, y0, y1 int, d float64, cell MapCell, side int, wallX float64) {
+	sw := f.sw
+	pix := rc.pixels
+	s := distShade(d)
+	if side == 1 {
+		s = s * 179 >> 8 // 0.7: cheap directional light
+	}
+	var tex *Texture2D
+	if int(cell) >= 0 && int(cell) < len(f.wallTex) {
+		tex = f.wallTex[cell]
+	}
+	if tex == nil {
+		wc, ok := wallColors[cell]
+		if !ok {
+			wc = wallColors[CellWall2]
+		}
+		stripe := wallX * 255 * 0.3
+		fs := float64(s) / 256
+		r := clampByte(float64(wc.R)*fs*0.7 + stripe)
+		g := clampByte(float64(wc.G)*fs*0.7 + stripe)
+		b := clampByte(float64(wc.B)*fs*0.7 + stripe)
+		for y := y0; y < y1; y++ {
+			i := (y*sw + x) * 4
+			pix[i], pix[i+1], pix[i+2], pix[i+3] = r, g, b, 255
+		}
+		return
+	}
+	texW, texH := int(tex.Width), int(tex.Height)
+	texX := int(wallX*float64(texW)) & (texW - 1)
+	step := float64(texH) * d / f.focal
+	hTop := f.eye - (float64(y0)+0.5-f.horizon)*d/f.focal
+	texPos := (1-hTop)*float64(texH) + float64(texH)*4096 // keep positive
+	for y := y0; y < y1; y++ {
+		texY := int(texPos) & (texH - 1)
+		texPos += step
+		src := (texY*texW + texX) * 4
+		i := (y*sw + x) * 4
+		pix[i] = uint8(int32(tex.Pixels[src]) * s >> 8)
+		pix[i+1] = uint8(int32(tex.Pixels[src+1]) * s >> 8)
+		pix[i+2] = uint8(int32(tex.Pixels[src+2]) * s >> 8)
+		pix[i+3] = 255
+	}
+}
+
+// --- Sprites ---
+
+type spriteItem struct {
+	tex      *Texture2D
+	alpha    int32 // 0..256
+	depth    float64
+	x0, size float64 // left edge and size on screen (square)
+	yTop     float64
+	shade    int32
+}
+
+// spriteTexture picks the texture for a sprite seen from the camera: one of
+// its rotation frames (when it has them) by the viewing angle, otherwise
+// TexName.
+func (rc *Raycaster) spriteTexture(s *Sprite) *Texture2D {
+	name := s.TexName
+	if n := len(s.Rotations); n > 0 {
+		name = s.Rotations[RotationIndex(s.Angle, math.Atan2(rc.Player.Y-s.Y, rc.Player.X-s.X), n)]
+	}
+	return rc.TexManager.Get(name)
+}
+
+// RotationIndex selects one of n rotation frames for a thing facing angle
+// facing, seen from direction toViewer (the angle from the thing to the
+// camera). Frame 0 is the front (thing faces the viewer), frames go
+// counter-clockwise around the thing.
+func RotationIndex(facing, toViewer float64, n int) int {
+	a := toViewer - facing
+	a = math.Mod(a, 2*math.Pi)
+	if a < 0 {
+		a += 2 * math.Pi
+	}
+	seg := 2 * math.Pi / float64(n)
+	return int((a+seg/2)/seg) % n
+}
+
+// drawSpritesCPU draws the sprites (far to near) into the pixel buffer,
+// each column clipped to the window the walls left open in front of it.
+func (rc *Raycaster) drawSpritesCPU(f *frame, sprites []*Sprite) {
+	items := rc.spriteItems[:0]
+	for _, s := range sprites {
+		if s == nil || !s.Active {
+			continue
+		}
+		tex := rc.spriteTexture(s)
+		if tex == nil || tex.Width <= 0 || tex.Height <= 0 || len(tex.Pixels) < int(tex.Width*tex.Height*4) {
+			continue
+		}
+		dx, dy := s.X-f.px, s.Y-f.py
+		depth := dx*f.dirX + dy*f.dirY
+		if depth < 0.1 {
+			continue
+		}
+		lateral := -dx*f.dirY + dy*f.dirX
+		size := s.Scale * f.focal / depth
+		sx := f.fsw/2 + f.focal*lateral/depth
+		x0 := sx - size/2
+		if x0+size < 0 || x0 >= f.fsw {
+			continue
+		}
+		// World top of the sprite: it stands on its cell's floor; Z > 0
+		// lowers it (legacy convention), Scale is its height.
+		topH := rc.Map.FloorAtPoint(s.X, s.Y) + EyeHeight - s.Z + s.Scale/2
+		yTop := f.rowAt(topH, depth)
+		if yTop >= f.fsh || yTop+size < 0 {
+			continue
+		}
+		alpha := int32(s.Alpha*256 + 0.5)
+		if alpha <= 0 {
+			continue
+		}
+		items = append(items, spriteItem{tex: tex, alpha: min(alpha, 256), depth: depth, x0: x0, size: size,
+			yTop: yTop, shade: distShade(depth)})
+	}
+	rc.spriteItems = items
+	if len(items) == 0 {
+		return
+	}
+	sort.SliceStable(items, func(i, j int) bool { return items[i].depth > items[j].depth })
+	parallel(f.sw, func(lo, hi int) {
+		for i := range items {
+			rc.drawSpriteColumns(f, &items[i], lo, hi)
+		}
+	})
+}
+
+func (rc *Raycaster) drawSpriteColumns(f *frame, it *spriteItem, lo, hi int) {
+	xa := max(lo, int(math.Ceil(it.x0-0.5)))
+	xb := min(hi, int(math.Ceil(it.x0+it.size-0.5)))
+	if xa >= xb {
+		return
+	}
+	tw, th := int(it.tex.Width), int(it.tex.Height)
+	ya := f.rowOf(it.yTop)
+	yb := f.rowOf(it.yTop + it.size)
+	pix := rc.pixels
+	tp := it.tex.Pixels
+	for x := xa; x < xb; x++ {
+		// Window left open by everything nearer than the sprite.
+		top, bot := int32(0), int32(f.sh)
+		for _, c := range rc.clips[x] {
+			if c.dist >= it.depth {
+				break
+			}
+			top, bot = c.top, c.bot
+		}
+		y0, y1 := max(ya, int(top)), min(yb, int(bot))
+		if y0 >= y1 {
+			continue
+		}
+		tx := int((float64(x) + 0.5 - it.x0) / it.size * float64(tw))
+		tx = min(max(tx, 0), tw-1)
+		for y := y0; y < y1; y++ {
+			ty := int((float64(y) + 0.5 - it.yTop) / it.size * float64(th))
+			ty = min(max(ty, 0), th-1)
+			src := (ty*tw + tx) * 4
+			a := int32(tp[src+3]) * it.alpha >> 8
+			if a < 1 {
+				continue
+			}
+			i := (y*f.sw + x) * 4
+			r := int32(tp[src]) * it.shade >> 8
+			g := int32(tp[src+1]) * it.shade >> 8
+			b := int32(tp[src+2]) * it.shade >> 8
+			if a >= 255 {
+				pix[i], pix[i+1], pix[i+2] = uint8(r), uint8(g), uint8(b)
+				continue
+			}
+			pix[i] = uint8((r*a + int32(pix[i])*(255-a)) / 255)
+			pix[i+1] = uint8((g*a + int32(pix[i+1])*(255-a)) / 255)
+			pix[i+2] = uint8((b*a + int32(pix[i+2])*(255-a)) / 255)
+		}
+	}
 }
 
 func clampInt(v, lo, hi int) int {

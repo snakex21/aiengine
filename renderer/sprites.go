@@ -1,6 +1,6 @@
 // renderer/sprites.go — Billboard sprite data types and helpers.
-// The actual sprite rendering (drawSprites) lives in raycaster.go
-// because it needs access to the Z-buffer and shader state.
+// Sprites are drawn on the CPU (drawSpritesCPU in cast.go), clipped per
+// column against walls, steps and floors.
 
 package renderer
 
@@ -15,6 +15,13 @@ type Sprite struct {
 	Active   bool    // if false, sprite is not rendered
 	EntityID string  // optional reference to entity
 	IsWeapon bool    // HUD element – skip Z‑buffer, always on top
+
+	// Optional view-dependent frames: Rotations[i] is the texture seen from
+	// rotation i (0 = front, counter-clockwise, any count such as 8), chosen
+	// by the angle between Angle (the facing direction, radians) and the
+	// camera. Empty = always TexName.
+	Angle     float64
+	Rotations []string
 }
 
 // SpriteBatch manages a collection of sprites and renders them efficiently.
