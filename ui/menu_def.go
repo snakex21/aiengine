@@ -69,9 +69,10 @@ type Background struct {
 
 // Item is a selectable row.
 type Item struct {
-	Label   string
-	Action  Action
-	Setting string // settings row key (generated)
+	Label    string
+	Action   Action
+	Setting  string // settings row key (generated)
+	Disabled bool   // shown but cannot be activated (e.g. locked level)
 }
 
 // Action is what activating an item asks the host to do.
@@ -84,7 +85,7 @@ type Action struct {
 var actionKinds = map[string]bool{
 	"new_game": true, "load_level": true, "level_select": true, "settings": true,
 	"resume": true, "restart": true, "main_menu": true, "quit": true,
-	"run_script": true, "menu": true, "back": true,
+	"run_script": true, "menu": true, "back": true, "continue": true,
 }
 
 // actionsWithArg must have an argument.

@@ -65,6 +65,14 @@ type Menu struct {
 	BaseDir  string            // project directory (for background images)
 	OnSound  func(name string) // optional: plays move/select/back sounds
 
+	// Available hides items whose action is not possible right now (e.g.
+	// "continue" without a saved game). nil = everything available.
+	Available func(a Action) bool
+	// LevelStatus describes a level in the generated level list: whether it
+	// can be started and a suffix shown after its title (best time,
+	// "locked"...). nil = all levels enabled, no suffix.
+	LevelStatus func(id string) (enabled bool, suffix string)
+
 	stack  []string
 	focus  int
 	images map[string]*image.RGBA
@@ -158,6 +166,9 @@ func (m *Menu) resolve(name string) *Screen {
 			if it.Action.Kind == "level_select" && len(m.Levels) < 2 {
 				continue
 			}
+			if m.Available != nil && !m.Available(it.Action) {
+				continue
+			}
 			s.Items = append(s.Items, it)
 		}
 	}
@@ -172,7 +183,15 @@ func (m *Menu) resolve(name string) *Screen {
 	case "level_select":
 		if len(s.Items) == 0 {
 			for _, l := range m.Levels {
-				s.Items = append(s.Items, Item{Label: l.Title, Action: Action{Kind: "load_level", Arg: l.ID}})
+				it := Item{Label: l.Title, Action: Action{Kind: "load_level", Arg: l.ID}}
+				if m.LevelStatus != nil {
+					enabled, suffix := m.LevelStatus(l.ID)
+					it.Disabled = !enabled
+					if suffix != "" {
+						it.Label += "  " + suffix
+					}
+				}
+				s.Items = append(s.Items, it)
 			}
 			s.Items = append(s.Items, Item{Label: m.label(src, "back"), Action: Action{Kind: "back"}})
 		}
@@ -244,6 +263,10 @@ func (m *Menu) Input(in Input) (Action, bool) {
 	if in != Accept {
 		return Action{}, false
 	}
+	if it.Disabled {
+		m.sound("back")
+		return Action{}, false
+	}
 	m.sound("select")
 	return m.activate(it.Action)
 }
@@ -281,7 +304,7 @@ func (m *Menu) activate(a Action) (Action, bool) {
 			m.OpenRoot("main")
 		}
 		return a, true
-	case "resume", "new_game", "load_level", "restart":
+	case "resume", "new_game", "load_level", "restart", "continue":
 		m.Close()
 		return a, true
 	}
@@ -516,6 +539,9 @@ func (m *Menu) Draw(buf []uint8, sw, sh int) {
 	for i, it := range s.Items {
 		r := l.Items[i]
 		col := st.Text
+		if it.Disabled {
+			col = st.Hint
+		}
 		focused := i == m.focus
 		if focused {
 			renderer.FillRect(buf, sw, sh, r.X, r.Y, r.W, r.H-pad, st.FocusBG)

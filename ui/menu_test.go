@@ -283,3 +283,40 @@ func TestDrawRendersTextAndFocus(t *testing.T) {
 		t.Fatal("focused item text not drawn in focus colour")
 	}
 }
+
+func TestContinueHiddenAndLockedLevels(t *testing.T) {
+	def, err := Parse(strings.NewReader("SCREEN main\n  ITEM Kontynuuj continue\n  ITEM \"Nowa gra\" new_game\n  ITEM Poziomy level_select\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	levels := []parser.LevelEntry{{ID: "a", Title: "A"}, {ID: "b", Title: "B"}}
+	m := New(def, levels, nil, ".")
+	saved := false
+	m.Available = func(a Action) bool { return a.Kind != "continue" || saved }
+	m.LevelStatus = func(id string) (bool, string) {
+		if id == "a" {
+			return true, "1:23"
+		}
+		return false, "(zablokowany)"
+	}
+	m.OpenRoot("main")
+	if strings.Contains(m.Describe(), "Kontynuuj") {
+		t.Fatal("continue shown without a save")
+	}
+	saved = true
+	m.OpenRoot("main")
+	if a, ok := m.Input(Accept); !ok || a.Kind != "continue" || m.Active() {
+		t.Fatalf("continue: %+v", a)
+	}
+	m.OpenRoot("main")
+	m.Input(Down)
+	m.Input(Down)
+	m.Input(Accept)
+	if m.Describe() != "level_select: [A  1:23] | B  (zablokowany) | Back" {
+		t.Fatalf("levels: %s", m.Describe())
+	}
+	m.Input(Down)
+	if _, ok := m.Input(Accept); ok || m.ScreenName() != "level_select" {
+		t.Fatal("a locked level must not start")
+	}
+}
