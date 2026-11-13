@@ -80,3 +80,31 @@ func TestGameFlowCallbacksFromLuaAndJS(t *testing.T) {
 		t.Fatalf("doors = %v", doors)
 	}
 }
+
+func TestJSSetTimeoutRunsOnTick(t *testing.T) {
+	e := NewEngine()
+	jb := NewJSBridge(e)
+	if _, err := jb.RunString(`
+		var log = [];
+		setTimeout(function() { log.push("a"); }, 100);
+		var cancelled = setTimeout(function() { log.push("x"); }, 50);
+		clearTimeout(cancelled);
+		var n = 0;
+		var iv = setInterval(function() { n++; if (n == 3) clearInterval(iv); }, 20);
+	`); err != nil {
+		t.Fatal(err)
+	}
+	jb.Tick(0.05)
+	if got := jb.VM.Get("log").String(); got != "" {
+		t.Fatalf("log after 50ms = %q", got)
+	}
+	for i := 0; i < 10; i++ {
+		jb.Tick(0.02)
+	}
+	if got := jb.VM.Get("log").String(); got != "a" {
+		t.Fatalf("log = %q, want a", got)
+	}
+	if n := jb.VM.Get("n").ToInteger(); n != 3 {
+		t.Fatalf("interval ran %d times, want 3", n)
+	}
+}

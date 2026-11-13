@@ -18,6 +18,17 @@ type JSBridge struct {
 	VM     *goja.Runtime
 	engine *Engine
 	ui     *UIBridge // separate UI object for UI-specific functions
+
+	// setTimeout/setInterval timers, advanced by Tick on the main thread.
+	timers  map[int64]*jsTimer
+	nextID  int64
+	elapsed float64
+}
+
+type jsTimer struct {
+	fn       goja.Callable
+	due      float64 // bridge time in seconds
+	interval float64 // > 0 for setInterval
 }
 
 // UIBridge exposes UI-only functions as methods on a "UI" global object.
@@ -29,7 +40,7 @@ type UIBridge struct {
 func NewJSBridge(engine *Engine) *JSBridge {
 	vm := goja.New()
 	ui := &UIBridge{engine: engine}
-	jb := &JSBridge{VM: vm, engine: engine, ui: ui}
+	jb := &JSBridge{VM: vm, engine: engine, ui: ui, timers: make(map[int64]*jsTimer)}
 	jb.registerAPI()
 	return jb
 }
@@ -445,6 +456,55 @@ func (jb *JSBridge) registerAPI() {
 		return goja.Undefined()
 	})
 	vm.Set("console", consoleObj)
+
+	// --- Timers (browser-style; run by Tick, so they follow game time) ---
+	addTimer := func(call goja.FunctionCall, repeat bool) goja.Value {
+		fn, ok := goja.AssertFunction(call.Argument(0))
+		if !ok {
+			return goja.Undefined()
+		}
+		delay := call.Argument(1).ToFloat() / 1000
+		if delay != delay || delay < 0 { // NaN/undefined → 0
+			delay = 0
+		}
+		jb.nextID++
+		t := &jsTimer{fn: fn, due: jb.elapsed + delay}
+		if repeat {
+			t.interval = delay
+			if t.interval < 0.001 {
+				t.interval = 0.001
+			}
+		}
+		jb.timers[jb.nextID] = t
+		return vm.ToValue(jb.nextID)
+	}
+	clearTimer := func(call goja.FunctionCall) goja.Value {
+		delete(jb.timers, call.Argument(0).ToInteger())
+		return goja.Undefined()
+	}
+	vm.Set("setTimeout", func(call goja.FunctionCall) goja.Value { return addTimer(call, false) })
+	vm.Set("setInterval", func(call goja.FunctionCall) goja.Value { return addTimer(call, true) })
+	vm.Set("clearTimeout", clearTimer)
+	vm.Set("clearInterval", clearTimer)
+}
+
+// Tick advances JS timers by dt seconds and runs the ones that are due.
+// Call it once per frame from the main loop.
+func (jb *JSBridge) Tick(dt float64) {
+	jb.elapsed += dt
+	for id, t := range jb.timers {
+		if t.due > jb.elapsed {
+			continue
+		}
+		if t.interval > 0 {
+			t.due += t.interval
+		} else {
+			delete(jb.timers, id)
+		}
+		if _, err := t.fn(goja.Undefined()); err != nil {
+			log.Printf("[JS] timer error: %v", err)
+		}
+	}
 }
 
 // RunString executes a JavaScript script string.
