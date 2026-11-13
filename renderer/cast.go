@@ -136,6 +136,13 @@ type frame struct {
 	wallTex           [5]*Texture2D // indexed by MapCell
 	rowK              []float64     // per row: focal / |row centre - horizon|
 	px, py            float64
+
+	// Lighting (light.go): off for maps without any, which then render
+	// exactly as before (flat colours unshaded).
+	lit, fogOn bool
+	fogC       [3]int32
+	cellLight  []int32 // per cell, 8.8 fixed point (nil = all 256)
+	lut        [len(shadeLUT)]lightEntry
 }
 
 // rowAt is the (fractional) screen row of world height h at distance d.
@@ -184,6 +191,7 @@ func (rc *Raycaster) renderToBuffer(sprites []*Sprite) {
 		dy := math.Abs(float64(y) + 0.5 - f.horizon)
 		f.rowK[y] = f.focal / math.Max(dy, 1e-3)
 	}
+	rc.prepareLighting(f)
 	if len(rc.zBuffer) != f.sw {
 		rc.zBuffer = make([]float64, f.sw)
 	}
@@ -245,6 +253,7 @@ func (rc *Raycaster) castColumn(f *frame, x int) {
 	rc.zBuffer[x] = 0
 	top, bot := 0, f.sh
 	curF, curC := m.FloorAt(mapX, mapY), m.CeilAt(mapX, mapY)
+	curL := f.light(m, mapX, mapY)
 
 	for i := 0; i < maxCastSteps; i++ {
 		var d float64
@@ -263,11 +272,11 @@ func (rc *Raycaster) castColumn(f *frame, x int) {
 
 		// The current cell's ceiling and floor up to this boundary.
 		if e := min(f.rowOf(f.rowAt(curC, d)), bot); e > top {
-			rc.drawCeil(f, x, top, e, curC, rdx, rdy)
+			rc.drawPlane(f, x, top, e, curC-f.eye, curL, f.ceilTex, f.ceil, rdx, rdy, true)
 			top = e
 		}
 		if s := max(f.rowOf(f.rowAt(curF, d)), top); s < bot {
-			rc.drawFloor(f, x, s, bot, curF, rdx, rdy)
+			rc.drawPlane(f, x, s, bot, f.eye-curF, curL, f.floorTex, f.flr, rdx, rdy, false)
 			bot = s
 		}
 
@@ -279,10 +288,11 @@ func (rc *Raycaster) castColumn(f *frame, x int) {
 		}
 		wallX -= math.Floor(wallX)
 
+		// Walls and step faces take the light of the cell in front of them.
 		cell := m.GetCell(mapX, mapY)
 		if cell != CellEmpty {
 			if top < bot {
-				rc.drawWall(f, x, top, bot, d, cell, side, wallX)
+				rc.drawWall(f, x, top, bot, d, curL, cell, side, wallX)
 			}
 			rc.zBuffer[x] = d
 			clips = append(clips, clipEntry{d, int32(top), int32(top)})
@@ -292,13 +302,13 @@ func (rc *Raycaster) castColumn(f *frame, x int) {
 		nF, nC := m.FloorAt(mapX, mapY), m.CeilAt(mapX, mapY)
 		if nC < curC { // upper step face (lower ceiling ahead)
 			if e := min(f.rowOf(f.rowAt(nC, d)), bot); e > top {
-				rc.drawWall(f, x, top, e, d, m.SideAt(mapX, mapY), side, wallX)
+				rc.drawWall(f, x, top, e, d, curL, m.SideAt(mapX, mapY), side, wallX)
 				top = e
 			}
 		}
 		if nF > curF { // lower step face (higher floor ahead)
 			if s := max(f.rowOf(f.rowAt(nF, d)), top); s < bot {
-				rc.drawWall(f, x, s, bot, d, m.SideAt(mapX, mapY), side, wallX)
+				rc.drawWall(f, x, s, bot, d, curL, m.SideAt(mapX, mapY), side, wallX)
 				bot = s
 			}
 		}
@@ -307,33 +317,32 @@ func (rc *Raycaster) castColumn(f *frame, x int) {
 			rc.zBuffer[x] = d
 			return
 		}
-		curF, curC = nF, nC
+		curF, curC, curL = nF, nC, f.light(m, mapX, mapY)
 	}
 	// Ran out of steps: the last cell's planes continue to the horizon.
 	h := min(max(f.rowOf(f.horizon), top), bot)
-	rc.drawCeil(f, x, top, h, curC, rdx, rdy)
-	rc.drawFloor(f, x, h, bot, curF, rdx, rdy)
+	rc.drawPlane(f, x, top, h, curC-f.eye, curL, f.ceilTex, f.ceil, rdx, rdy, true)
+	rc.drawPlane(f, x, h, bot, f.eye-curF, curL, f.floorTex, f.flr, rdx, rdy, false)
 }
 
-// drawCeil fills rows [y0, y1) of column x with the ceiling plane at height h.
-func (rc *Raycaster) drawCeil(f *frame, x, y0, y1 int, h, rdx, rdy float64) {
-	rc.drawPlane(f, x, y0, y1, h-f.eye, f.ceilTex, f.ceil, rdx, rdy, true)
-}
+// planeK darkens floors and ceilings a little against walls (0.85).
+const planeK = 218
 
-// drawFloor fills rows [y0, y1) of column x with the floor plane at height h.
-func (rc *Raycaster) drawFloor(f *frame, x, y0, y1 int, h, rdx, rdy float64) {
-	rc.drawPlane(f, x, y0, y1, f.eye-h, f.floorTex, f.flr, rdx, rdy, false)
-}
-
-// drawPlane draws a horizontal plane whose height differs from the eye by
-// dh (positive when the plane faces the camera). Rows on the wrong side of
-// the horizon, or without a texture, get the flat colour.
-func (rc *Raycaster) drawPlane(f *frame, x, y0, y1 int, dh float64, tex *Texture2D, flat [4]uint8, rdx, rdy float64, above bool) {
+// drawPlane draws rows [y0, y1) of column x with a horizontal plane whose
+// height differs from the eye by dh (positive when the plane faces the
+// camera), lit by cell light L. Rows on the wrong side of the horizon, or
+// without a texture, get the flat colour (shaded only on lit maps).
+func (rc *Raycaster) drawPlane(f *frame, x, y0, y1 int, dh float64, L int32, tex *Texture2D, flat [4]uint8, rdx, rdy float64, above bool) {
 	sw := f.sw
 	pix := rc.pixels
 	if tex == nil || dh <= 0 {
 		for y := y0; y < y1; y++ {
 			i := (y*sw + x) * 4
+			if f.lit && dh > 0 && (float64(y)+0.5 < f.horizon) == above {
+				s, fz := f.shadeFor(L, lutIndex(dh*f.rowK[y]), planeK)
+				f.put(pix[i:i+4:i+4], int32(flat[0]), int32(flat[1]), int32(flat[2]), s, fz)
+				continue
+			}
 			pix[i], pix[i+1], pix[i+2], pix[i+3] = flat[0], flat[1], flat[2], 255
 		}
 		return
@@ -351,8 +360,21 @@ func (rc *Raycaster) drawPlane(f *frame, x, y0, y1 int, dh float64, tex *Texture
 		tx := int(wx*fw) & (tw - 1) // one repeat per cell (power-of-two wrap)
 		ty := int(wy*fh) & (th - 1)
 		src := (ty*tw + tx) * 4
-		s := distShade(d) * 218 >> 8 // floors and ceilings are a bit darker (0.85)
 		tp := tex.Pixels[src : src+3 : src+3]
+		if f.lit { // f.put, inlined by hand (hot loop)
+			e := &f.lut[lutIndex(d)]
+			s := (L*e.dist>>8)*planeK>>8 + e.flash
+			r, g, b := int32(tp[0])*s>>8, int32(tp[1])*s>>8, int32(tp[2])*s>>8
+			if e.fog > 0 {
+				r = (r*e.keep + e.fogR) >> 8
+				g = (g*e.keep + e.fogG) >> 8
+				b = (b*e.keep + e.fogB) >> 8
+			}
+			dst := pix[i : i+4 : i+4]
+			dst[0], dst[1], dst[2], dst[3] = uint8(min(r, 255)), uint8(min(g, 255)), uint8(min(b, 255)), 255
+			continue
+		}
+		s := distShade(d) * planeK >> 8
 		pix[i] = uint8(int32(tp[0]) * s >> 8)
 		pix[i+1] = uint8(int32(tp[1]) * s >> 8)
 		pix[i+2] = uint8(int32(tp[2]) * s >> 8)
@@ -360,15 +382,20 @@ func (rc *Raycaster) drawPlane(f *frame, x, y0, y1 int, dh float64, tex *Texture
 	}
 }
 
-// drawWall fills rows [y0, y1) of column x with a wall face at distance d.
-// Textures are anchored to world height (one repeat per unit, top of a
-// classic 0..1 wall at v=0), so faces of different heights line up.
-func (rc *Raycaster) drawWall(f *frame, x, y0, y1 int, d float64, cell MapCell, side int, wallX float64) {
+// drawWall fills rows [y0, y1) of column x with a wall face at distance d
+// lit by cell light L. Textures are anchored to world height (one repeat per
+// unit, top of a classic 0..1 wall at v=0), so faces of different heights
+// line up.
+func (rc *Raycaster) drawWall(f *frame, x, y0, y1 int, d float64, L int32, cell MapCell, side int, wallX float64) {
 	sw := f.sw
 	pix := rc.pixels
-	s := distShade(d)
+	k := int32(256)
 	if side == 1 {
-		s = s * 179 >> 8 // 0.7: cheap directional light
+		k = 179 // 0.7: cheap directional light
+	}
+	s, fz := distShade(d)*k>>8, int32(0)
+	if f.lit {
+		s, fz = f.shadeFor(L, lutIndex(d), k)
 	}
 	var tex *Texture2D
 	if int(cell) >= 0 && int(cell) < len(f.wallTex) {
@@ -381,12 +408,12 @@ func (rc *Raycaster) drawWall(f *frame, x, y0, y1 int, d float64, cell MapCell, 
 		}
 		stripe := wallX * 255 * 0.3
 		fs := float64(s) / 256
-		r := clampByte(float64(wc.R)*fs*0.7 + stripe)
-		g := clampByte(float64(wc.G)*fs*0.7 + stripe)
-		b := clampByte(float64(wc.B)*fs*0.7 + stripe)
+		var px [4]uint8
+		f.put(px[:], int32(clampByte(float64(wc.R)*fs*0.7+stripe)), int32(clampByte(float64(wc.G)*fs*0.7+stripe)),
+			int32(clampByte(float64(wc.B)*fs*0.7+stripe)), 256, fz)
 		for y := y0; y < y1; y++ {
 			i := (y*sw + x) * 4
-			pix[i], pix[i+1], pix[i+2], pix[i+3] = r, g, b, 255
+			copy(pix[i:i+4], px[:])
 		}
 		return
 	}
@@ -400,6 +427,17 @@ func (rc *Raycaster) drawWall(f *frame, x, y0, y1 int, d float64, cell MapCell, 
 		texPos += step
 		src := (texY*texW + texX) * 4
 		i := (y*sw + x) * 4
+		if f.lit {
+			r, g, b := int32(tex.Pixels[src])*s>>8, int32(tex.Pixels[src+1])*s>>8, int32(tex.Pixels[src+2])*s>>8
+			if fz > 0 {
+				r = (r*(256-fz) + f.fogC[0]*fz) >> 8
+				g = (g*(256-fz) + f.fogC[1]*fz) >> 8
+				b = (b*(256-fz) + f.fogC[2]*fz) >> 8
+			}
+			dst := pix[i : i+4 : i+4]
+			dst[0], dst[1], dst[2], dst[3] = uint8(min(r, 255)), uint8(min(g, 255)), uint8(min(b, 255)), 255
+			continue
+		}
 		pix[i] = uint8(int32(tex.Pixels[src]) * s >> 8)
 		pix[i+1] = uint8(int32(tex.Pixels[src+1]) * s >> 8)
 		pix[i+2] = uint8(int32(tex.Pixels[src+2]) * s >> 8)
@@ -415,7 +453,8 @@ type spriteItem struct {
 	depth    float64
 	x0, size float64 // left edge and size on screen (square)
 	yTop     float64
-	shade    int32
+	shade    int32 // light of the sprite's cell and distance (8.8)
+	fog      int32 // fog factor (8.8)
 }
 
 // spriteTexture picks the texture for a sprite seen from the camera: one of
@@ -478,8 +517,13 @@ func (rc *Raycaster) drawSpritesCPU(f *frame, sprites []*Sprite) {
 		if alpha <= 0 {
 			continue
 		}
+		shade, fog := distShade(depth), int32(0)
+		if f.lit { // sprites are lit by the cell they stand in
+			cx, cy := cellAtPoint(s.X, s.Y)
+			shade, fog = f.shadeFor(f.light(rc.Map, cx, cy), lutIndex(depth), 256)
+		}
 		items = append(items, spriteItem{tex: tex, alpha: min(alpha, 256), depth: depth, x0: x0, size: size,
-			yTop: yTop, shade: distShade(depth)})
+			yTop: yTop, shade: shade, fog: fog})
 	}
 	rc.spriteItems = items
 	if len(items) == 0 {
@@ -528,13 +572,13 @@ func (rc *Raycaster) drawSpriteColumns(f *frame, it *spriteItem, lo, hi int) {
 				continue
 			}
 			i := (y*f.sw + x) * 4
-			r := int32(tp[src]) * it.shade >> 8
-			g := int32(tp[src+1]) * it.shade >> 8
-			b := int32(tp[src+2]) * it.shade >> 8
+			var c [4]uint8
+			f.put(c[:], int32(tp[src]), int32(tp[src+1]), int32(tp[src+2]), it.shade, it.fog)
 			if a >= 255 {
-				pix[i], pix[i+1], pix[i+2] = uint8(r), uint8(g), uint8(b)
+				pix[i], pix[i+1], pix[i+2] = c[0], c[1], c[2]
 				continue
 			}
+			r, g, b := int32(c[0]), int32(c[1]), int32(c[2])
 			pix[i] = uint8((r*a + int32(pix[i])*(255-a)) / 255)
 			pix[i+1] = uint8((g*a + int32(pix[i+1])*(255-a)) / 255)
 			pix[i+2] = uint8((b*a + int32(pix[i+2])*(255-a)) / 255)

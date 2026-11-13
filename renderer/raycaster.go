@@ -38,6 +38,7 @@ type MapData struct {
 	Floor []float64 // floor height (default 0)
 	Ceil  []float64 // ceiling height (default 1)
 	Side  []MapCell // texture of the cell's step faces (default stone)
+	Light []float64 // light level (default 1), see light.go
 }
 
 func NewMapData(grid [][]MapCell) *MapData {
@@ -335,6 +336,13 @@ type Raycaster struct {
 	clips       [][]clipEntry
 	rowK        []float64
 	spriteItems []spriteItem
+
+	// Lighting (light.go): dynamic point lights for this frame, the weapon
+	// flash (0..1, set by the host and decayed by it) and distance fog.
+	Lights    []PointLight
+	Flash     float64
+	Fog       Fog
+	cellLight []int32
 
 	// Effects (applied via simple post-processing).
 	effects *EffectsConfig
