@@ -144,6 +144,9 @@ func FromDocument(doc *parser.AIEDocument) (*Level, error) {
 	if err := lv.buildGrid(grid.Values); err != nil {
 		return nil, err
 	}
+	if err := lv.buildHeights(mapNode); err != nil {
+		return nil, err
+	}
 
 	counters := map[string]int{}
 	for _, child := range mapNode.Children {

@@ -65,10 +65,12 @@ func (f *Fighter) Step(g nav.Grid, px, py, dt float64, blocked func(x, y float64
 		f.cooldown -= dt
 	}
 	dist := math.Hypot(px-f.X, py-f.Y)
-	sees := dist < f.Sight && nav.LineClear(g, f.X, f.Y, px, py, 0)
+	ef, pf := floorAt(g, f.X, f.Y), floorAt(g, px, py)
+	sees := dist < f.Sight && nav.SightClear(g, f.X, f.Y, ef+EyeLevel, px, py, pf+EyeLevel)
+	reach := math.Abs(ef-pf) <= MeleeHeight
 
 	// Melee: telegraph (wind-up), then hit if the player is still in reach.
-	if sees && dist <= f.Range {
+	if sees && reach && dist <= f.Range {
 		if f.winding > 0 {
 			f.winding -= dt
 			f.State = "windup"
@@ -137,4 +139,21 @@ func (f *Fighter) approach(g nav.Grid, px, py, tx, ty, dt float64, blocked func(
 			f.State = "idle"
 		}
 	}
+}
+
+// EyeLevel is the height of enemy and player eyes above their floor for
+// line-of-sight checks; MeleeHeight is the largest floor difference a melee
+// hit bridges (an enemy below a ledge cannot hit a player standing on it).
+const (
+	EyeLevel    = 0.5
+	MeleeHeight = 0.45
+)
+
+// floorAt is the floor height under a point when the grid has heights.
+func floorAt(g nav.Grid, x, y float64) float64 {
+	if h, ok := g.(nav.Heights); ok {
+		c := nav.CellAt(x, y)
+		return h.FloorAt(c.X, c.Y)
+	}
+	return 0
 }

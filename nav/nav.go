@@ -14,6 +14,31 @@ type Grid interface {
 	Solid(x, y int) bool
 }
 
+// Stepper is an optional Grid extension for maps with floor heights: CanStep
+// reports whether a walker may move between two neighbouring open cells
+// (step height, headroom). Grids without it treat all open cells as connected.
+type Stepper interface {
+	CanStep(from, to Cell) bool
+}
+
+// Heights is an optional Grid extension giving absolute floor and ceiling
+// heights per cell, used for line of sight.
+type Heights interface {
+	FloorAt(x, y int) float64
+	CeilAt(x, y int) float64
+}
+
+// canStep applies the grid's Stepper, if any.
+func canStep(g Grid, from, to Cell) bool {
+	if from == to {
+		return true
+	}
+	if s, ok := g.(Stepper); ok {
+		return s.CanStep(from, to)
+	}
+	return true
+}
+
 // Cell is a grid coordinate (x = column, y = row).
 type Cell struct{ X, Y int }
 
@@ -63,12 +88,13 @@ func FindPath(g Grid, start, goal Cell, maxNodes int) []Cell {
 		closed[cur] = true
 		for _, d := range dirs {
 			n := Cell{cur.X + d.X, cur.Y + d.Y}
-			if g.Solid(n.X, n.Y) || closed[n] {
+			if g.Solid(n.X, n.Y) || closed[n] || !canStep(g, cur, n) {
 				continue
 			}
 			cost := 1.0
 			if d.X != 0 && d.Y != 0 {
-				if g.Solid(cur.X+d.X, cur.Y) || g.Solid(cur.X, cur.Y+d.Y) {
+				a, b := Cell{cur.X + d.X, cur.Y}, Cell{cur.X, cur.Y + d.Y}
+				if g.Solid(a.X, a.Y) || g.Solid(b.X, b.Y) || !canStep(g, cur, a) || !canStep(g, cur, b) {
 					continue // would clip a corner
 				}
 				cost = math.Sqrt2
@@ -97,12 +123,40 @@ func LineClear(g Grid, x0, y0, x1, y1, radius float64) bool {
 	dx, dy := x1-x0, y1-y0
 	dist := math.Hypot(dx, dy)
 	steps := int(dist/0.1) + 1
+	prev := CellAt(x0, y0)
 	for i := 0; i <= steps; i++ {
 		t := float64(i) / float64(steps)
 		x, y := x0+dx*t, y0+dy*t
+		center := CellAt(x, y)
+		if !canStep(g, prev, center) {
+			return false
+		}
+		prev = center
 		for _, o := range [5][2]float64{{0, 0}, {radius, 0}, {-radius, 0}, {0, radius}, {0, -radius}} {
 			c := CellAt(x+o[0], y+o[1])
-			if g.Solid(c.X, c.Y) {
+			if g.Solid(c.X, c.Y) || !canStep(g, center, c) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// SightClear reports whether an eye at (x0,y0,z0) sees the point (x1,y1,z1)
+// (z = absolute heights): no solid cell on the way and, when the grid has
+// Heights, the line stays between every crossed floor and ceiling.
+func SightClear(g Grid, x0, y0, z0, x1, y1, z1 float64) bool {
+	h, ok := g.(Heights)
+	dx, dy := x1-x0, y1-y0
+	steps := int(math.Hypot(dx, dy)/0.05) + 1
+	for i := 1; i < steps; i++ {
+		t := float64(i) / float64(steps)
+		c := CellAt(x0+dx*t, y0+dy*t)
+		if g.Solid(c.X, c.Y) {
+			return false
+		}
+		if ok {
+			if z := z0 + (z1-z0)*t; z <= h.FloorAt(c.X, c.Y) || z >= h.CeilAt(c.X, c.Y) {
 				return false
 			}
 		}
@@ -123,7 +177,8 @@ func Steer(g Grid, x, y, tx, ty, radius float64) (dx, dy float64, ok bool) {
 	// cell centre - or giving up - left enemies standing out of reach when
 	// the player hugged a wall).
 	if from == goal || (math.Abs(float64(from.X-goal.X)) <= 1 && math.Abs(float64(from.Y-goal.Y)) <= 1 &&
-		!g.Solid(goal.X, from.Y) && !g.Solid(from.X, goal.Y)) {
+		!g.Solid(goal.X, from.Y) && !g.Solid(from.X, goal.Y) && canStep(g, from, goal) &&
+		canStep(g, from, Cell{goal.X, from.Y}) && canStep(g, from, Cell{from.X, goal.Y})) {
 		return unit(tx-x, ty-y)
 	}
 	path := FindPath(g, from, goal, 0)

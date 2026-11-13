@@ -287,7 +287,7 @@ func TestCanOccupyAndSupport(t *testing.T) {
 	m.SetFloor(1, 0, 0.25) // walkable step
 	m.SetFloor(2, 0, 0.5)  // too high without jumping
 	m.SetCeil(2, 0, 1.5)
-	m.SetCeil(3, 1, 0.5)   // crawl space
+	m.SetCeil(3, 1, 0.5) // crawl space
 	if !m.CanOccupy(1.5, 0.5, 0.15, 0, MaxStepUp, HeadroomStand) {
 		t.Error("a 0.25 step must be walkable")
 	}

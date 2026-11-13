@@ -302,3 +302,38 @@ func TestParseAIEStandaloneTrigger(t *testing.T) {
 		t.Errorf("expected TRIGGER win_game, got %s %s", tr.Type, tr.Name)
 	}
 }
+
+func TestHeightAndLightGridBlocks(t *testing.T) {
+	src := `MAP h
+GRID
+W W W
+W P W
+W W W
+FLOOR_GRID
+. . .
+. 2 .
+. . a
+CEILING_GRID
+. G .
+LIGHT_GRID
+9 9 9
+PLACE item x 1.5 0 1.5
+`
+	doc, err := ParseAIE(strings.NewReader(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := doc.Nodes[0]
+	for name, rows := range map[string]int{"GRID": 3, "FLOOR_GRID": 3, "CEILING_GRID": 1, "LIGHT_GRID": 1} {
+		n := m.FindChild(name)
+		if n == nil || len(n.Values) != rows {
+			t.Fatalf("%s: got %+v, want %d rows", name, n, rows)
+		}
+	}
+	if m.FindChild("FLOOR_GRID").Values[2] != ". . a" {
+		t.Errorf("row kept verbatim, got %q", m.FindChild("FLOOR_GRID").Values[2])
+	}
+	if len(m.FindChildren("PLACE")) != 1 {
+		t.Error("PLACE after a grid block must still parse")
+	}
+}

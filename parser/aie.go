@@ -42,7 +42,8 @@ var entityKeywords = map[string]bool{
 
 // blockKeywords is the set of keys that start a sub-block (containing children or values).
 var blockKeywords = map[string]bool{
-	"GRID": true, "GENERATE": true, "ZONE": true,
+	"GRID": true, "FLOOR_GRID": true, "CEILING_GRID": true, "LIGHT_GRID": true,
+	"GENERATE": true, "ZONE": true,
 	"HP_PARTS": true, "HP_PHASES": true, "DAMAGE_PARTS": true,
 	"BEHAVIOR": true, "ANIM": true, "MAP_PROPS": true,
 	"PLACE":   true,
@@ -123,14 +124,14 @@ func ParseAIE(r io.Reader) (*AIEDocument, error) {
 		}
 
 		// --- Pop stack for indentation changes (unless inside a GRID block) ---
-		if stack.depth() > 0 && !strings.EqualFold(stack.peek().node.Type, "GRID") {
+		if stack.depth() > 0 && !IsGridBlock(stack.peek().node.Type) {
 			for stack.depth() > 0 && stack.peek().indent >= indent {
 				stack.pop()
 			}
 		}
 
 		// --- If inside a GRID block, check if this line is grid data ---
-		if stack.depth() > 0 && strings.EqualFold(stack.peek().node.Type, "GRID") {
+		if stack.depth() > 0 && IsGridBlock(stack.peek().node.Type) {
 			if isGridRow(trimmed) {
 				stack.peek().node.Values = append(stack.peek().node.Values, trimmed)
 				continue
@@ -507,3 +508,11 @@ func (n *AIENode) IsCutscene() bool {
 func (n *AIENode) IsSound() bool {
 	return strings.EqualFold(n.Type, "SOUND")
 }
+
+// gridBlocks hold one row of single-character cells per line: the map GRID
+// and the optional per-cell layers aligned with it (floor and ceiling
+// heights, light levels).
+var gridBlocks = map[string]bool{"GRID": true, "FLOOR_GRID": true, "CEILING_GRID": true, "LIGHT_GRID": true}
+
+// IsGridBlock reports whether a block type collects grid rows.
+func IsGridBlock(typ string) bool { return gridBlocks[strings.ToUpper(typ)] }
