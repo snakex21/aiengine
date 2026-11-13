@@ -32,6 +32,7 @@ import (
 
 	"aiengine/parser"
 	"aiengine/renderer"
+	"aiengine/sector"
 )
 
 // Placement is one PLACE line (or an object implied by a GRID symbol).
@@ -77,6 +78,12 @@ type Level struct {
 	// lights.go. baseLight is the per-cell light before them (nil = lit map).
 	Lights    []*Light
 	baseLight []float64
+
+	// Sectors is set for sector maps (sectors.go); Map is then a 1-unit
+	// grid sampled from it for pathfinding and triggers.
+	Sectors      *sector.Map
+	sectorBase   []float64
+	sectorLights [][]sectorLight
 
 	doors map[string]*door
 }
@@ -127,8 +134,9 @@ func FromDocument(doc *parser.AIEDocument) (*Level, error) {
 		return nil, fmt.Errorf("no MAP block")
 	}
 	grid := mapNode.FindChild("GRID")
-	if grid == nil || len(grid.Values) == 0 {
-		return nil, fmt.Errorf("MAP %s has no GRID rows", mapNode.Name)
+	sectorDefs := mapNode.FindChildren("SECTOR")
+	if len(sectorDefs) == 0 && (grid == nil || len(grid.Values) == 0) {
+		return nil, fmt.Errorf("MAP %s has no GRID rows and no SECTOR lines", mapNode.Name)
 	}
 
 	lv := &Level{
@@ -146,11 +154,17 @@ func FromDocument(doc *parser.AIEDocument) (*Level, error) {
 		lv.SpawnAngle = deg * math.Pi / 180
 	}
 
-	if err := lv.buildGrid(grid.Values); err != nil {
-		return nil, err
-	}
-	if err := lv.buildHeights(mapNode); err != nil {
-		return nil, err
+	if len(sectorDefs) > 0 {
+		if err := lv.buildSectors(sectorDefs); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := lv.buildGrid(grid.Values); err != nil {
+			return nil, err
+		}
+		if err := lv.buildHeights(mapNode); err != nil {
+			return nil, err
+		}
 	}
 
 	counters := map[string]int{}
@@ -380,4 +394,13 @@ func (lv *Level) Doors() []DoorInfo {
 // IsSolid reports whether the map cell under (x, y) blocks movement.
 func (lv *Level) IsSolid(x, y float64) bool {
 	return lv.Map.GetCell(int(math.Floor(x)), int(math.Floor(y))) != renderer.CellEmpty
+}
+
+// FromDocumentString parses .aie source and builds its first MAP.
+func FromDocumentString(src string) (*Level, error) {
+	doc, err := parser.ParseAIE(strings.NewReader(src))
+	if err != nil {
+		return nil, err
+	}
+	return FromDocument(doc)
 }

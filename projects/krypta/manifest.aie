@@ -14,6 +14,7 @@ MANIFEST
   LEVEL krypta maps/krypta.aie Kryształowa Krypta
   LEVEL lodowe_groby maps/lodowe_groby.aie Lodowe Groby
   LEVEL zalana_kopalnia maps/zalana_kopalnia.aie Zalana Kopalnia
+  LEVEL sanktuarium maps/sanktuarium.aie Ośmiokątne Sanktuarium
   LEVEL serce_krypty maps/serce_krypty.aie Serce Krypty
   MAIN_SCRIPT scripts/krypta.lua
   PLAYER_ASSETS assets/sprites/player

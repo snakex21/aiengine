@@ -4,8 +4,11 @@
 package main
 
 import (
+	"fmt"
 	"math"
+	"os"
 
+	"aiengine/level"
 	"aiengine/renderer"
 	"aiengine/systems"
 )
@@ -13,11 +16,26 @@ import (
 // bodyRadius is the collision radius of the player and enemies.
 const bodyRadius = 0.15
 
+// collider is the walkable world: the grid map or, for sector maps, the
+// sectors (both apply the same step and headroom rules).
+type collider interface {
+	Support(x, y, r float64) (floor, ceil float64)
+	CanOccupy(x, y, r, feet, maxStep, headroom float64) bool
+	SightClear(x0, y0, z0, x1, y1, z1 float64) bool
+}
+
+func (app *App) world() collider {
+	if app.raycaster.Sectors != nil {
+		return app.raycaster.Sectors
+	}
+	return app.raycaster.Map
+}
+
 // placePlayer moves the player to (x, y) standing on that spot's floor (spawn,
 // teleports): no fall and no step smoothing.
 func (app *App) placePlayer(x, y float64) {
 	app.player.X, app.player.Y = x, y
-	floor, _ := app.raycaster.Map.Support(x, y, bodyRadius)
+	floor, _ := app.world().Support(x, y, bodyRadius)
 	app.player.PlaceAt(floor)
 }
 
@@ -26,20 +44,20 @@ func (app *App) placePlayer(x, y float64) {
 // the current stance.
 func (app *App) playerBlocked(x, y float64) bool {
 	p := app.player
-	return !app.raycaster.Map.CanOccupy(x, y, bodyRadius, p.Feet(), renderer.MaxStepUp, p.Headroom())
+	return !app.world().CanOccupy(x, y, bodyRadius, p.Feet(), renderer.MaxStepUp, p.Headroom())
 }
 
 // canStandUp reports whether the ceiling above the player leaves room to
 // stand (crawl spaces keep the player crouched/prone).
 func (app *App) canStandUp() bool {
-	_, ceil := app.raycaster.Map.Support(app.player.X, app.player.Y, bodyRadius)
+	_, ceil := app.world().Support(app.player.X, app.player.Y, bodyRadius)
 	return ceil-app.player.Feet() >= renderer.HeadroomStand-1e-9
 }
 
 // updatePlayerGround follows the floor under the player after it moved and
 // applies fall damage (map FALL_DAMAGE) when it lands.
 func (app *App) updatePlayerGround() {
-	floor, _ := app.raycaster.Map.Support(app.player.X, app.player.Y, bodyRadius)
+	floor, _ := app.world().Support(app.player.X, app.player.Y, bodyRadius)
 	app.player.SetGround(floor)
 }
 
@@ -66,12 +84,26 @@ func (app *App) applyFallDamage() {
 // enemyBodyBlocked reports whether an enemy body standing on the floor of
 // (fromX, fromY) may not move to (x, y).
 func (app *App) enemyBodyBlocked(fromX, fromY, x, y float64) bool {
-	m := app.raycaster.Map
+	m := app.world()
 	feet, _ := m.Support(fromX, fromY, bodyRadius)
 	return !m.CanOccupy(x, y, bodyRadius, feet, renderer.MaxStepUp, renderer.HeadroomStand)
 }
 
 // enemyAimHeight is the absolute height the player aims at on an enemy.
 func (app *App) enemyAimHeight(s *renderer.Sprite) float64 {
-	return app.raycaster.Map.FloorAtPoint(s.X, s.Y) + renderer.EyeHeight - s.Z
+	floor, _ := app.world().Support(s.X, s.Y, 0)
+	return floor + renderer.EyeHeight - s.Z
+}
+
+// convertGridMap writes the sector version of a GRID map file.
+func convertGridMap(in, out string) error {
+	src, err := os.ReadFile(in)
+	if err != nil {
+		return err
+	}
+	res, err := level.GridToSectors(string(src))
+	if err != nil {
+		return fmt.Errorf("%s: %w", in, err)
+	}
+	return os.WriteFile(out, []byte(res), 0o644)
 }

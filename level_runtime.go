@@ -68,6 +68,7 @@ func (app *App) startLevel(lv *level.Level) error {
 		app.player.FOV = app.ms.settings.FOV * math.Pi / 180
 	}
 	app.raycaster.Map = lv.Map
+	app.raycaster.Sectors = lv.Sectors
 	app.raycaster.Player = app.player
 	app.placePlayer(lv.SpawnX, lv.SpawnY)
 	app.raycaster.OverlayTitle = ""

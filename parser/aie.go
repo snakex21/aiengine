@@ -46,7 +46,7 @@ var blockKeywords = map[string]bool{
 	"GENERATE": true, "ZONE": true,
 	"HP_PARTS": true, "HP_PHASES": true, "DAMAGE_PARTS": true,
 	"BEHAVIOR": true, "ANIM": true, "MAP_PROPS": true,
-	"PLACE":   true,
+	"PLACE":   true, "SECTOR": true,
 	"TRIGGER": true, "CUTSCENE": true, "SOUND": true,
 }
 

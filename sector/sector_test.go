@@ -202,3 +202,20 @@ func TestSegmentHit(t *testing.T) {
 		t.Fatal("parallel offset segment must miss")
 	}
 }
+
+func TestFormatParseRoundTrip(t *testing.T) {
+	d := Def{Sector: Sector{ID: "c1_2", Floor: -0.25, Ceil: 1.5, Light: 0.5, StepTex: "S", Tag: "x",
+		Poly: []Vec2{{1, 2}, {2, 2}, {2, 3}, {1, 3}}}, WallTex: "W", EdgeTex: []string{"M", "", "W", ""}}
+	got, err := ParseDef(FormatDef(d))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != d.ID || got.Floor != d.Floor || got.Ceil != d.Ceil || got.Light != d.Light || got.StepTex != "S" ||
+		got.WallTex != "W" || got.Tag != "x" || len(got.Poly) != 4 || got.Poly[2] != d.Poly[2] ||
+		strings.Join(got.EdgeTex, "|") != "M||W|" {
+		t.Fatalf("round trip: %+v -> %q -> %+v", d, FormatDef(d), got)
+	}
+	if p, _ := ParseDef("a : 0 0 1 0 1 1"); p.Light != -1 {
+		t.Error("light left out must be -1 (map default)")
+	}
+}

@@ -201,6 +201,17 @@ func main() {
 		case "--build":
 			runBuild()
 			return
+		case "--grid2sectors":
+			// Convert a GRID map file into a sector map file (no window).
+			if len(os.Args) != 4 {
+				fmt.Fprintln(os.Stderr, "usage: aiengine --grid2sectors <grid.aie> <sectors.aie>")
+				os.Exit(2)
+			}
+			if err := convertGridMap(os.Args[2], os.Args[3]); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			return
 		case "--level":
 			// Launch specific level — same as normal game, just sets map.
 			// Fall through to normal game launch.
@@ -231,6 +242,7 @@ func main() {
 			fmt.Println("  --frames N              quit after N frames (smoke test)")
 			fmt.Println("  --exec \"cmd; cmd\"       console commands after start, e.g. \"god; tp 3 4\"")
 			fmt.Println("  --cpuprofile <file>     write a Go CPU profile of the run (go tool pprof)")
+			fmt.Println("  --grid2sectors <in.aie> <out.aie>  convert a GRID map into a sector map")
 			return
 		}
 	}
@@ -1170,7 +1182,7 @@ func (app *App) shootDemoEnemy() {
 		if math.Abs(angle) > 0.18 {
 			continue
 		}
-		if !app.raycaster.Map.SightClear(app.player.X, app.player.Y, app.player.EyeZ(), enemy.Sprite.X, enemy.Sprite.Y, app.enemyAimHeight(enemy.Sprite)) {
+		if !app.world().SightClear(app.player.X, app.player.Y, app.player.EyeZ(), enemy.Sprite.X, enemy.Sprite.Y, app.enemyAimHeight(enemy.Sprite)) {
 			continue
 		}
 		bestDist = dist

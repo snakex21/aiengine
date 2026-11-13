@@ -115,6 +115,12 @@ func (lv *Level) buildLights(mapNode *parser.AIENode) error {
 			Effect: effect, Speed: p.Float("speed", 6), Min: p.Float("min", 0.2), seed: hash32(uint32(len(lights) + 1))}
 		lights = append(lights, l)
 	}
+	if lv.Sectors != nil {
+		lv.Lights = lights
+		lv.buildSectorLights(lights)
+		lv.UpdateLights(0)
+		return nil
+	}
 	if lg == nil && ambient == 1 && len(lights) == 0 {
 		return nil // fully lit classic map
 	}
@@ -153,6 +159,10 @@ func (lv *Level) buildLights(mapNode *parser.AIENode) error {
 // UpdateLights recomputes the map's cell lights at time t (base light plus
 // every light's current contribution). Call once per frame.
 func (lv *Level) UpdateLights(t float64) {
+	if lv.Sectors != nil {
+		lv.updateSectorLights(t)
+		return
+	}
 	if lv.baseLight == nil {
 		return
 	}

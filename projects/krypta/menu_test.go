@@ -62,7 +62,7 @@ func TestTitleMenuNavigation(t *testing.T) {
 	menu.Input(ui.Down)
 	menu.Input(ui.Down)
 	menu.Input(ui.Accept)
-	want = "level_select: [Przedsionek  1:23] | Kryształowa Krypta | Lodowe Groby  (zablokowany) | Zalana Kopalnia  (zablokowany) | Serce Krypty  (zablokowany) | Wróć"
+	want = "level_select: [Przedsionek  1:23] | Kryształowa Krypta | Lodowe Groby  (zablokowany) | Zalana Kopalnia  (zablokowany) | Ośmiokątne Sanktuarium  (zablokowany) | Serce Krypty  (zablokowany) | Wróć"
 	if got := menu.Describe(); got != want {
 		t.Fatalf("level select\n got %s\nwant %s", got, want)
 	}

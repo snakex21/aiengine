@@ -13,7 +13,7 @@ FOG yes color=#140E0A density=0.12
 VAR_TIME_LIMIT 270
 VAR_MUSIC krypta_drone
 INTRO Kopalnię zalał żrący kwas.|Strażnicy czekają w zasadzkach i ruszają dopiero, gdy podejdziesz.|Ściany korytarzy kryją niejedną tajemnicę.
-OUTRO Za kopalnią bije serce krypty. Strażnik Krypty już na ciebie czeka.
+OUTRO Za kopalnią otwiera się ośmiokątne sanktuarium o krzywych ścianach.
 
 GRID
 W W W W W W W W W W W W W W W W W W W W W W

@@ -19,7 +19,7 @@ func campaignLevels(t *testing.T) (*parser.Manifest, *progress.Campaign) {
 		t.Fatal(err)
 	}
 	c := progress.FromManifest(m)
-	if c == nil || len(c.Levels) != 5 {
+	if c == nil || len(c.Levels) != 6 {
 		t.Fatalf("campaign %+v", c)
 	}
 	return m, c
@@ -148,8 +148,10 @@ func TestCampaignLevelsAreSolvable(t *testing.T) {
 			if !reach[portal] {
 				t.Errorf("portal unreachable at the end")
 			}
-			// The portal must not be reachable before the gate opens.
-			if flood(lv, map[string]bool{})[portal] {
+			// The portal must not be reachable before the gate opens (sector
+			// maps have no doors yet: there the script keeps the portal asleep
+			// until every crystal is collected).
+			if lv.Sectors == nil && flood(lv, map[string]bool{})[portal] {
 				t.Errorf("portal reachable without opening any door")
 			}
 			// Every key must be found before its door (not behind it).
