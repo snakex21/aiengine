@@ -10,6 +10,7 @@ import (
 	"log"
 	"math"
 	"math/rand"
+	"sync"
 )
 
 // --- Procedural Sound Generation ---
@@ -324,6 +325,22 @@ type AudioSystem struct {
 
 	// Spatial audio parameters.
 	ListenerPos Vec3
+
+	// Volume levels and the requested music track, re-applied when the
+	// backend comes up after they were set.
+	musicLevel, sfxLevel float64
+	volumesSet           bool
+	wantMusic            string
+
+	// mu guards Backend and the pending state above: InitBackend runs on
+	// its own goroutine while the game thread plays sounds.
+	mu sync.Mutex
+}
+
+func (as *AudioSystem) backend() *AudioBackend {
+	as.mu.Lock()
+	defer as.mu.Unlock()
+	return as.Backend
 }
 
 // NewAudioSystem creates an audio system with default sample rate.
@@ -343,11 +360,19 @@ func (as *AudioSystem) InitBackend() error {
 	if err != nil {
 		return err
 	}
+	as.mu.Lock()
+	defer as.mu.Unlock()
 	as.Backend = backend
 
 	// Cache all registered procedural sounds.
 	for name, sd := range as.SoundDefs {
 		backend.CacheProcedural(name, sd)
+	}
+	if as.volumesSet {
+		backend.SetVolumes(as.sfxLevel, as.musicLevel)
+	}
+	if as.wantMusic != "" {
+		backend.PlayMusic(as.wantMusic)
 	}
 
 	return nil
@@ -356,6 +381,8 @@ func (as *AudioSystem) InitBackend() error {
 // RegisterSoundDef stores a procedural sound definition. If backend is already
 // running, also caches it immediately.
 func (as *AudioSystem) RegisterSoundDef(sd SoundDef) {
+	as.mu.Lock()
+	defer as.mu.Unlock()
 	as.SoundDefs[sd.Name] = sd
 	if as.Backend != nil {
 		as.Backend.CacheProcedural(sd.Name, sd)
@@ -370,8 +397,8 @@ func (as *AudioSystem) PlaySoundDef(name string) *AudioClip {
 
 // PlaySound plays a sound by name. Delegates to the backend.
 func (as *AudioSystem) PlaySound(name string) {
-	if as.Backend != nil {
-		as.Backend.PlaySound(name)
+	if b := as.backend(); b != nil {
+		b.PlaySound(name)
 	} else {
 		log.Printf("[Audio] Backend not ready, cannot play: %s", name)
 	}
@@ -379,15 +406,15 @@ func (as *AudioSystem) PlaySound(name string) {
 
 // StopAll stops all audio playback.
 func (as *AudioSystem) StopAll() {
-	if as.Backend != nil {
-		as.Backend.StopAll()
+	if b := as.backend(); b != nil {
+		b.StopAll()
 	}
 }
 
 // Shutdown releases audio resources.
 func (as *AudioSystem) Shutdown() {
-	if as.Backend != nil {
-		as.Backend.Shutdown()
+	if b := as.backend(); b != nil {
+		b.Shutdown()
 	}
 }
 
@@ -459,6 +486,39 @@ func (as *AudioSystem) SetMasterVolume(vol float32) {
 		vol = 1.0
 	}
 	as.MasterVol = vol
+}
+
+// SetVolumes applies master/music/sfx levels (0..1) to live playback:
+// effects play at master*sfx, music at master*music.
+func (as *AudioSystem) SetVolumes(master, music, sfx float64) {
+	as.SetMasterVolume(float32(master))
+	as.mu.Lock()
+	defer as.mu.Unlock()
+	as.musicLevel, as.sfxLevel = master*music, master*sfx
+	as.volumesSet = true
+	if as.Backend != nil {
+		as.Backend.SetVolumes(as.sfxLevel, as.musicLevel)
+	}
+}
+
+// PlayMusicTrack loops a named sound/file as music (see AudioBackend.PlayMusic).
+func (as *AudioSystem) PlayMusicTrack(name string) {
+	as.mu.Lock()
+	defer as.mu.Unlock()
+	as.wantMusic = name
+	if as.Backend != nil {
+		as.Backend.PlayMusic(name)
+	}
+}
+
+// StopMusicTrack stops the looping music track.
+func (as *AudioSystem) StopMusicTrack() {
+	as.mu.Lock()
+	defer as.mu.Unlock()
+	as.wantMusic = ""
+	if as.Backend != nil {
+		as.Backend.StopMusic()
+	}
 }
 
 // SetListenerPosition updates the 3D audio listener position.

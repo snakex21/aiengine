@@ -65,6 +65,12 @@ type AudioBackend struct {
 	// Active players (for cleanup).
 	players []*oto.Player
 
+	// Volumes (0..1): effective sound-effect and music gain.
+	sfxVol   float64
+	musicVol float64
+	music    *oto.Player
+	musicKey string
+
 	running bool
 	quit    chan struct{}
 }
@@ -94,6 +100,8 @@ func NewAudioBackend(sampleRate int, soundPaths []string) (*AudioBackend, error)
 		soundPaths: soundPaths,
 		running:    true,
 		quit:       make(chan struct{}),
+		sfxVol:     1,
+		musicVol:   1,
 	}
 
 	// Background goroutine to clean up finished players.
@@ -216,11 +224,100 @@ func (ab *AudioBackend) playPCM(pcm []int16) {
 
 	reader := bytes.NewReader(data)
 	player := ab.ctx.NewPlayer(reader)
-	player.Play()
-
 	ab.mu.Lock()
+	player.SetVolume(ab.sfxVol)
 	ab.players = append(ab.players, player)
 	ab.mu.Unlock()
+	player.Play()
+}
+
+// resolvePCM finds samples for name: cache, audio file, or procedural def.
+func (ab *AudioBackend) resolvePCM(name string) []int16 {
+	if data, ok := ab.cache.Get(name); ok {
+		return data
+	}
+	if IsAudioFile(name) {
+		if path := ab.findFile(name); path != "" {
+			if samples, _, err := LoadAudioFile(path); err == nil {
+				pcm := float32ToInt16(samples)
+				ab.cache.Set(name, pcm)
+				return pcm
+			}
+		}
+	}
+	if sd, ok := ab.soundDefs[name]; ok {
+		pcm := float32ToInt16(sd.GenerateSamples(ab.sampleRate))
+		ab.cache.Set(name, pcm)
+		return pcm
+	}
+	return nil
+}
+
+// PlayMusic loops a sound (procedural def or audio file) as background music,
+// replacing the current track. Playing the same track again is a no-op.
+func (ab *AudioBackend) PlayMusic(name string) {
+	ab.mu.Lock()
+	same := ab.music != nil && ab.musicKey == name
+	ab.mu.Unlock()
+	if same {
+		return
+	}
+	pcm := ab.resolvePCM(name)
+	if len(pcm) == 0 {
+		log.Printf("[Audio] Music not found: %s", name)
+		return
+	}
+	data := make([]byte, len(pcm)*2)
+	for i, v := range pcm {
+		binary.LittleEndian.PutUint16(data[i*2:], uint16(v))
+	}
+	player := ab.ctx.NewPlayer(&LoopReader{Data: data})
+	ab.StopMusic()
+	ab.mu.Lock()
+	player.SetVolume(ab.musicVol)
+	ab.music, ab.musicKey = player, name
+	ab.mu.Unlock()
+	player.Play()
+}
+
+// StopMusic stops the background track.
+func (ab *AudioBackend) StopMusic() {
+	ab.mu.Lock()
+	defer ab.mu.Unlock()
+	if ab.music != nil {
+		ab.music.Close()
+		ab.music, ab.musicKey = nil, ""
+	}
+}
+
+// SetVolumes sets the effective sfx and music gains (0..1). Music changes
+// apply immediately; sfx applies to sounds started afterwards.
+func (ab *AudioBackend) SetVolumes(sfx, music float64) {
+	ab.mu.Lock()
+	defer ab.mu.Unlock()
+	ab.sfxVol, ab.musicVol = sfx, music
+	if ab.music != nil {
+		ab.music.SetVolume(music)
+	}
+}
+
+// LoopReader endlessly repeats Data (for looping music players).
+type LoopReader struct {
+	Data []byte
+	pos  int
+}
+
+func (r *LoopReader) Read(p []byte) (int, error) {
+	if len(r.Data) == 0 {
+		return 0, io.EOF
+	}
+	n := 0
+	for n < len(p) {
+		c := copy(p[n:], r.Data[r.pos:])
+		n += c
+		r.pos = (r.pos + c) % len(r.Data)
+	}
+	return n, nil
 }
 
 // findFile searches sound paths for the given filename.
@@ -251,6 +348,7 @@ func (ab *AudioBackend) StopAll() {
 func (ab *AudioBackend) Shutdown() {
 	ab.running = false
 	close(ab.quit)
+	ab.StopMusic()
 	ab.StopAll()
 	log.Println("[Audio] Backend shut down")
 }

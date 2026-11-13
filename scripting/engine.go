@@ -497,20 +497,33 @@ func (e *Engine) StopSound(file string) {
 	}
 }
 
-// PlayMusic starts background music (placeholder).
+// MusicPlayer is implemented by audio players that can loop music.
+type MusicPlayer interface {
+	PlayMusicTrack(name string)
+	StopMusicTrack()
+}
+
+// PlayMusic starts looping background music (a SOUND name or audio file)
+// when the audio player supports it.
 func (e *Engine) PlayMusic(file string) {
 	e.mu.Lock()
 	e.CurrentMusic = file
 	e.mu.Unlock()
 	log.Printf("[Script] PlayMusic: %s", file)
+	if mp, ok := e.AudioPlayer.(MusicPlayer); ok {
+		mp.PlayMusicTrack(file)
+	}
 }
 
-// StopMusic stops background music (placeholder).
+// StopMusic stops background music.
 func (e *Engine) StopMusic() {
 	e.mu.Lock()
 	e.CurrentMusic = ""
 	e.mu.Unlock()
 	log.Printf("[Script] StopMusic")
+	if mp, ok := e.AudioPlayer.(MusicPlayer); ok {
+		mp.StopMusicTrack()
+	}
 }
 
 // ChangeMusic transitions to new music (placeholder).

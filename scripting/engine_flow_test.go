@@ -161,3 +161,26 @@ func TestSpawnEnemyIDsAreUnique(t *testing.T) {
 		t.Fatalf("ids %q %q, entities %d", a, b, len(e.Entities))
 	}
 }
+
+type fakeMusic struct{ track string }
+
+func (f *fakeMusic) PlaySound(string)        {}
+func (f *fakeMusic) StopAll()                {}
+func (f *fakeMusic) PlayMusicTrack(n string) { f.track = n }
+func (f *fakeMusic) StopMusicTrack()         { f.track = "" }
+
+func TestPlayMusicReachesMusicPlayer(t *testing.T) {
+	e := NewEngine()
+	fm := &fakeMusic{}
+	e.AudioPlayer = fm
+	lb := NewLuaBridge(e)
+	defer lb.Close()
+	lb.DoString(`playMusic("drone")`)
+	if fm.track != "drone" {
+		t.Fatalf("track = %q", fm.track)
+	}
+	lb.DoString(`stopMusic()`)
+	if fm.track != "" {
+		t.Fatal("stopMusic did not stop")
+	}
+}
