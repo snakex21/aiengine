@@ -21,6 +21,7 @@ import (
 	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
 
+	"aiengine/anim"
 	"aiengine/input"
 	"aiengine/level"
 	"aiengine/parser"
@@ -60,6 +61,7 @@ type App struct {
 	effects    *renderer.EffectsConfig
 	enemies    []*DemoEnemy
 	playerAnim DemoPlayerAnim
+	animSets   map[string]*anim.Set // enemy animation sets by texture prefix
 
 	// Scripting.
 	scriptEngine *scripting.Engine
@@ -182,6 +184,11 @@ type DemoEnemy struct {
 	HitSound    string
 	FramePrefix string // texture prefix of the 3x2 atlas frames ("" = "enemy")
 	AttackRate  float64
+	Height      float64 // headroom the body needs (closing doors, crushers)
+
+	// Sprite animation (enemy_anim.go); nil = the legacy frame cycle.
+	Anim  *anim.Player
+	painT float64
 }
 
 type DemoPlayerAnim struct {
@@ -1071,9 +1078,14 @@ func (app *App) updatePlayerAnimation(dt float64, moving bool) {
 
 func (app *App) updateDemoEnemies(dt float64) {
 	for _, enemy := range app.enemies {
+		if !enemy.Alive && enemy.Anim != nil && enemy.Sprite != nil && enemy.Sprite.Active {
+			app.animateEnemy(enemy, dt, 0, 0) // death animation, then the corpse
+			continue
+		}
 		if !enemy.Alive || enemy.Sprite == nil || !enemy.Sprite.Active {
 			continue
 		}
+		prevX, prevY := enemy.Sprite.X, enemy.Sprite.Y
 		if enemy.Sprite.Alpha < 1.0 {
 			enemy.Sprite.Alpha += float32(dt * 2.5)
 			if enemy.Sprite.Alpha > 1.0 {
@@ -1111,8 +1123,7 @@ func (app *App) updateDemoEnemies(dt float64) {
 			enemy.State = "idle"
 		}
 
-		enemy.AnimTimer += dt
-		enemy.Sprite.TexName = app.enemyAnimFrame(enemy)
+		app.animateEnemy(enemy, dt, enemy.Sprite.X-prevX, enemy.Sprite.Y-prevY)
 		if app.scriptEngine != nil {
 			if state := app.scriptEngine.Entities[enemy.ID]; state != nil {
 				state.HP = enemy.HP
@@ -1191,12 +1202,27 @@ func (app *App) shootDemoEnemy() {
 	if target == nil {
 		return
 	}
-	target.HP -= 25
+	app.damageEnemy(target, 25)
+}
+
+// damageEnemy hurts an enemy (shots, crushers) and kills it at 0 HP.
+func (app *App) damageEnemy(target *DemoEnemy, dmg float64) {
+	target.HP -= dmg
 	target.Sprite.Alpha = 0.75
+	if target.Anim != nil && target.HP > 0 {
+		target.painT = enemyPainTime
+		target.Anim.Restart(anim.Pain)
+	}
 	if target.HP <= 0 {
 		target.HP = 0
 		target.Alive = false
-		target.Sprite.Active = false
+		// With a death animation the body stays as a corpse.
+		if target.Anim != nil && target.Anim.Set.Clip(anim.Death) != nil {
+			target.Sprite.Alpha = 1
+			target.Anim.Restart(anim.Death)
+		} else {
+			target.Sprite.Active = false
+		}
 		if app.scriptEngine != nil {
 			app.scriptEngine.Emit("onEnemyDead", target.ID)
 			if state := app.scriptEngine.Entities[target.ID]; state != nil {
@@ -1205,7 +1231,7 @@ func (app *App) shootDemoEnemy() {
 			}
 		}
 	} else if app.scriptEngine != nil {
-		app.scriptEngine.Emit("onEnemyDamage", target.ID, 25)
+		app.scriptEngine.Emit("onEnemyDamage", target.ID, dmg)
 	}
 }
 

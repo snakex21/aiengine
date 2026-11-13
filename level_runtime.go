@@ -21,6 +21,7 @@ import (
 
 	"github.com/go-gl/glfw/v3.3/glfw"
 
+	"aiengine/anim"
 	"aiengine/level"
 	"aiengine/parser"
 	"aiengine/renderer"
@@ -34,6 +35,7 @@ type levelGame struct {
 	session *level.Session
 	sprites map[string]*levelSprite // placement id → billboard
 	clock   float64
+	loops   map[string]moverLoop // looping mover sounds by mover key
 }
 
 type levelSprite struct {
@@ -42,6 +44,8 @@ type levelSprite struct {
 	bob    float64
 	phase  float64
 	glow   renderer.PointLight // glow=<level> glow_radius=<cells>: light around the sprite
+
+	texOff, texOn string // switches: texture when off / flipped
 }
 
 func levelRuntimeEnabled() bool {
@@ -59,6 +63,7 @@ func (app *App) startLevel(lv *level.Level) error {
 	if app.luaBridge != nil {
 		app.luaBridge.Close()
 	}
+	app.stopMoverLoops()
 	app.sprites = nil
 	app.enemies = nil
 	app.paused = false
@@ -93,8 +98,9 @@ func (app *App) startLevel(lv *level.Level) error {
 	}
 	app.scriptEngine.SetPlayerPosition(app.player.X, app.player.Y, app.player.Feet())
 
-	g := &levelGame{lv: lv, sprites: make(map[string]*levelSprite)}
+	g := &levelGame{lv: lv, sprites: make(map[string]*levelSprite), loops: map[string]moverLoop{}}
 	g.session = level.NewSession(lv, app.scriptEngine)
+	g.session.Bodies = app.moverBodies
 	g.session.Exec.OnTeleportPlayer = func(x, y, z float64) { app.placePlayer(x, z) }
 	app.scriptEngine.OnRestart = func() { app.restartRequested = true }
 	app.scriptEngine.OnSpawn = func(id, typ string, x, y float64) {
@@ -107,6 +113,9 @@ func (app *App) startLevel(lv *level.Level) error {
 	app.scriptEngine.OnExit = func() { app.window.SetShouldClose(true) }
 	app.game = g
 
+	for _, sd := range defaultMoverSounds {
+		app.audioSys.RegisterSoundDef(sd)
+	}
 	for _, snd := range lv.Sounds {
 		app.audioSys.RegisterSoundDef(systems.SoundDefFromProps(snd.Name, soundProps(snd.Properties, snd.Children)))
 	}
@@ -120,16 +129,26 @@ func (app *App) startLevel(lv *level.Level) error {
 			if name == "" && (p.Kind == "item" || p.Kind == "prop") {
 				name = p.Type
 			}
-			if name == "" {
+			tex, texOn := "", ""
+			switch {
+			case p.Kind == "switch" && name == "":
+				tex, texOn = switchTextures(app.texManager)
+			case name == "":
 				continue
+			default:
+				tex = app.placementTexture(name)
+				if on := p.Params["sprite_on"]; on != "" {
+					texOn = app.placementTexture(on)
+				}
 			}
 			scale := p.Float("scale", 0.45)
 			baseZ := (1-scale)/2 - p.Height
-			s := &renderer.Sprite{X: p.X, Y: p.Y, Z: baseZ, Scale: scale, TexName: app.placementTexture(name),
+			s := &renderer.Sprite{X: p.X, Y: p.Y, Z: baseZ, Scale: scale, TexName: tex,
 				Alpha: 1, Active: true, EntityID: p.ID}
 			app.sprites = append(app.sprites, s)
 			g.sprites[p.ID] = &levelSprite{sprite: s, baseZ: baseZ, bob: p.Float("bob", 0), phase: float64(i),
-				glow: renderer.PointLight{X: p.X, Y: p.Y, Level: p.Float("glow", 0), Radius: p.Float("glow_radius", 2)}}
+				glow:   renderer.PointLight{X: p.X, Y: p.Y, Level: p.Float("glow", 0), Radius: p.Float("glow_radius", 2)},
+				texOff: tex, texOn: texOn}
 		}
 	}
 
@@ -208,7 +227,8 @@ func (app *App) spawnLevelEnemy(p level.Placement) {
 			}
 		}
 	}
-	sprite := &renderer.Sprite{X: p.X, Y: p.Y, Scale: p.Float("scale", 0.85), Alpha: 1, Active: true, EntityID: p.ID}
+	scale := p.Float("scale", 0.85)
+	sprite := &renderer.Sprite{X: p.X, Y: p.Y, Scale: scale, Alpha: 1, Active: true, EntityID: p.ID}
 	sprite.Z = p.Float("z", 0)
 	enemy := &DemoEnemy{
 		ID: p.ID, Sprite: sprite, HP: hp, MaxHP: hp,
@@ -221,8 +241,16 @@ func (app *App) spawnLevelEnemy(p level.Placement) {
 		FramePrefix: prefix,
 		Fighter:     level.NewFighter(p, int64(len(app.enemies)+1)),
 		HitSound:    p.Params["attack_sound"],
+		Height:      p.Float("height", math.Min(renderer.HeadroomStand, scale)),
 	}
-	sprite.TexName = app.enemyFrameFor(prefix, 0)
+	atlasPath := ""
+	if atlas := p.Params["atlas"]; atlas != "" {
+		atlasPath = projectPath(filepath.FromSlash(atlas))
+	}
+	enemy.Anim = anim.NewPlayer(app.enemyAnimSet(atlasPath, prefix))
+	enemy.Anim.T = float64(len(app.enemies)) * 0.37 // out of step with each other
+	sprite.Angle = math.Atan2(app.player.Y-p.Y, app.player.X-p.X)
+	sprite.TexName, sprite.Rotations = enemy.Anim.Textures()
 	app.enemies = append(app.enemies, enemy)
 	app.sprites = append(app.sprites, sprite)
 	app.scriptEngine.Entities[p.ID] = &scripting.EntityState{ID: p.ID, Type: p.Type, HP: hp, MaxHP: hp, X: p.X, Y: p.Y, Alive: true}
@@ -270,14 +298,24 @@ func (app *App) playerHit(e *DemoEnemy, dmg float64) {
 func (app *App) updateLevel(dt float64) {
 	g := app.game
 	g.clock += dt
+	app.raycaster.AnimTime = g.clock
+	// Movers run inside the session: a player standing on a moving floor
+	// rides it (no fall, no step smoothing).
+	before, _ := g.lv.Support(app.player.X, app.player.Y, bodyRadius)
 	events := g.session.Update(dt, app.player.X, app.player.Y)
+	after, _ := g.lv.Support(app.player.X, app.player.Y, bodyRadius)
+	app.player.Ride(before, after)
 	for _, ev := range events {
-		if ev.Kind == level.EventPickup {
+		switch ev.Kind {
+		case level.EventPickup:
 			if s := g.sprites[ev.ID]; s != nil {
 				s.sprite.Active = false
 			}
+		case level.EventMover, level.EventSwitch:
+			app.handleLevelEvent(ev)
 		}
 	}
+	app.updateMoverLoops()
 	lights := app.raycaster.Lights[:0]
 	for _, s := range g.sprites {
 		if s.bob > 0 {
@@ -291,6 +329,7 @@ func (app *App) updateLevel(dt float64) {
 	}
 	app.raycaster.Lights = lights
 	if g.session.State != level.Playing {
+		app.stopMoverLoops()
 		app.showEndScreen()
 	}
 }
@@ -410,6 +449,7 @@ func (app *App) applyLevelTextures(lv *level.Level) {
 			log.Printf("[Level] textures from %s: %v", d, names)
 		}
 	}
+	app.applyLevelAnimations(lv, dirs)
 	app.raycaster.FloorTexture, app.raycaster.CeilingTexture = "", ""
 	if tm.Get("floor") != nil {
 		app.raycaster.FloorTexture = "floor"
