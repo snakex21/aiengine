@@ -25,3 +25,5 @@ Thumbs.db
 # Player settings written by games (projects/<name>/settings.aie)
 projects/*/settings.aie
 projects/*/settings.aie.tmp
+projects/*/save.aie
+projects/*/save.aie.tmp
