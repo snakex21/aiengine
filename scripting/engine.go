@@ -613,6 +613,17 @@ func (e *Engine) SetVar(name string, value interface{}) {
 	e.mu.Unlock()
 }
 
+// VarsSnapshot returns a copy of all script variables.
+func (e *Engine) VarsSnapshot() map[string]interface{} {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	out := make(map[string]interface{}, len(e.Vars))
+	for k, v := range e.Vars {
+		out[k] = v
+	}
+	return out
+}
+
 // --- Timer API ---
 
 // StartTimer creates and starts a named timer.
