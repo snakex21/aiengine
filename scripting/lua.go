@@ -347,8 +347,10 @@ func (lb *LuaBridge) registerAPI() {
 		// Keep a reference to prevent GC.
 		fnRef := fn
 		e.On(eventName, func(args ...interface{}) {
+			// Push the callback followed by exactly the emitted args.
+			// (Previously the event name was pushed as an extra value, so
+			// PCall tried to call that string and every Lua event failed.)
 			L.Push(fnRef)
-			L.Push(lua.LString(eventName))
 			for _, arg := range args {
 				switch v := arg.(type) {
 				case float64:
