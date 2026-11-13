@@ -171,28 +171,38 @@ save(atlas, ROOT, "straznik.png")
 
 # ---------------------------------------------------------------- first-person wand
 def hand(glow=0.0, lower=0, flash=False):
-    w, h = 274, 236
+    # The canvas leaves room around the crystal tip so the glow (radius up to
+    # ~58 px plus blur) is never cut off at the image edge.
+    w, h = 320, 320
+    X, Y = 23, 84  # offset of the original 274x236 drawing inside the canvas
     im = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
-    oy = lower
+    oy = lower + Y
     # sleeve + hand
-    d.polygon([(150, 236), (236, 236), (196, 150 + oy), (150, 160 + oy)], fill=(60, 40, 90, 255))
-    d.ellipse([140, 128 + oy, 196, 176 + oy], fill=(214, 168, 130, 255), outline=(120, 80, 60, 255), width=2)
+    d.polygon([(150 + X, h), (236 + X, h), (196 + X, 150 + oy), (150 + X, 160 + oy)], fill=(60, 40, 90, 255))
+    d.ellipse([140 + X, 128 + oy, 196 + X, 176 + oy], fill=(214, 168, 130, 255), outline=(120, 80, 60, 255), width=2)
     # wand shaft
-    d.line([(168, 150 + oy), (118, 40 + oy)], fill=(96, 60, 30, 255), width=10)
-    d.line([(166, 148 + oy), (118, 42 + oy)], fill=(140, 96, 52, 255), width=3)
+    d.line([(168 + X, 150 + oy), (118 + X, 40 + oy)], fill=(96, 60, 30, 255), width=10)
+    d.line([(166 + X, 148 + oy), (118 + X, 42 + oy)], fill=(140, 96, 52, 255), width=3)
     # fingers over the shaft
     for k in range(3):
-        d.ellipse([150 + k * 6, 132 + oy + k * 9, 172 + k * 6, 148 + oy + k * 9], fill=(224, 178, 140, 255))
+        d.ellipse([150 + X + k * 6, 132 + oy + k * 9, 172 + X + k * 6, 148 + oy + k * 9], fill=(224, 178, 140, 255))
     # crystal tip with glow
-    tx, ty = 116, 32 + oy
+    tx, ty = 116 + X, 32 + oy
     r = int(18 + 14 * glow + (26 if flash else 0))
-    g = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     gcol = (255, 255, 220, 200) if flash else (80, 220, 255, int(90 + 100 * glow))
-    ImageDraw.Draw(g).ellipse([tx - r, ty - r, tx + r, ty + r], fill=gcol)
-    im = Image.alpha_composite(im, g.filter(ImageFilter.GaussianBlur(6)))
+    # Blur only the alpha mask over a solid glow colour: blurring an RGBA
+    # layer on transparent black darkens the fringe into a dark ring.
+    mask = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(mask).ellipse([tx - r, ty - r, tx + r, ty + r], fill=gcol[3])
+    g = Image.new("RGBA", (w, h), gcol[:3] + (0,))
+    g.putalpha(mask.filter(ImageFilter.GaussianBlur(6)))
+    im = Image.alpha_composite(im, g)
     d = ImageDraw.Draw(im)
     d.polygon([(tx, ty - 18), (tx + 10, ty), (tx, ty + 14), (tx - 10, ty)], fill=(120, 230, 255, 255), outline=(20, 90, 140, 255))
+    a = im.getchannel("A")
+    edges = [a.crop((0, 0, w, 1)), a.crop((0, 0, 1, h)), a.crop((w - 1, 0, w, h))]
+    assert max(max(e.getdata()) for e in edges) == 0, "wand frame art touches the image edge"
     return im
 
 
