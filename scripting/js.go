@@ -211,18 +211,17 @@ func (jb *JSBridge) registerAPI() {
 
 	// Game Flow API.
 	engineObj.Set("winGame", func(call goja.FunctionCall) goja.Value {
-		e.Emit("onWin")
-		if e.OnWin != nil {
-			e.OnWin()
-		}
+		e.WinGame(optString(call, 0))
 		return goja.Undefined()
 	})
 
 	engineObj.Set("loseGame", func(call goja.FunctionCall) goja.Value {
-		e.Emit("onLose")
-		if e.OnLose != nil {
-			e.OnLose()
-		}
+		e.LoseGame(optString(call, 0))
+		return goja.Undefined()
+	})
+
+	engineObj.Set("restartMap", func(call goja.FunctionCall) goja.Value {
+		e.RestartMap()
 		return goja.Undefined()
 	})
 
@@ -266,7 +265,12 @@ func (jb *JSBridge) registerAPI() {
 	})
 
 	uiObj.Set("setMessage", func(call goja.FunctionCall) goja.Value {
-		e.ShowMessage(call.Argument(0).String())
+		e.ShowMessageFor(call.Argument(0).String(), call.Argument(1).ToFloat())
+		return goja.Undefined()
+	})
+
+	uiObj.Set("setHUDText", func(call goja.FunctionCall) goja.Value {
+		e.SetHUDText(call.Argument(0).String(), optString(call, 1))
 		return goja.Undefined()
 	})
 
@@ -472,4 +476,13 @@ func (jb *JSBridge) Call(fnName string, args ...interface{}) (goja.Value, error)
 		jsArgs[i] = jb.VM.ToValue(arg)
 	}
 	return fn(goja.Undefined(), jsArgs...)
+}
+
+// optString returns argument i as a string, or "" when absent/undefined.
+func optString(call goja.FunctionCall, i int) string {
+	v := call.Argument(i)
+	if goja.IsUndefined(v) || goja.IsNull(v) {
+		return ""
+	}
+	return v.String()
 }

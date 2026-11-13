@@ -221,7 +221,7 @@ func (lb *LuaBridge) registerAPI() {
 
 	// --- UI API ---
 	L.SetGlobal("showMessage", L.NewFunction(func(L *lua.LState) int {
-		e.ShowMessage(L.CheckString(1))
+		e.ShowMessageFor(L.CheckString(1), float64(L.OptNumber(2, 0)))
 		return 0
 	}))
 
@@ -381,25 +381,19 @@ func (lb *LuaBridge) registerAPI() {
 	// --- Game Flow API ---
 	L.SetGlobal("winGame", L.NewFunction(func(L *lua.LState) int {
 		log.Println("[Lua] winGame called")
-		e.Emit("onWin")
-		if e.OnWin != nil {
-			e.OnWin()
-		}
+		e.WinGame(L.OptString(1, ""))
 		return 0
 	}))
 
 	L.SetGlobal("loseGame", L.NewFunction(func(L *lua.LState) int {
 		log.Println("[Lua] loseGame called")
-		e.Emit("onLose")
-		if e.OnLose != nil {
-			e.OnLose()
-		}
+		e.LoseGame(L.OptString(1, ""))
 		return 0
 	}))
 
 	L.SetGlobal("loadMap", L.NewFunction(func(L *lua.LState) int {
 		mapName := L.CheckString(1)
-		log.Printf("[Lua] loadMap: %s (stub)", mapName)
+		log.Printf("[Lua] loadMap: %s", mapName)
 		if e.OnMapChange != nil {
 			e.OnMapChange(mapName)
 		}
@@ -407,12 +401,18 @@ func (lb *LuaBridge) registerAPI() {
 	}))
 
 	L.SetGlobal("restartMap", L.NewFunction(func(L *lua.LState) int {
-		log.Println("[Lua] restartMap (stub)")
+		e.RestartMap()
 		return 0
 	}))
 
 	L.SetGlobal("exitGame", L.NewFunction(func(L *lua.LState) int {
 		log.Println("[Lua] exitGame called")
+		e.ExitGame()
+		return 0
+	}))
+
+	L.SetGlobal("setHUDText", L.NewFunction(func(L *lua.LState) int {
+		e.SetHUDText(L.CheckString(1), L.OptString(2, ""))
 		return 0
 	}))
 

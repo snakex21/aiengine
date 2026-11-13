@@ -6,6 +6,7 @@ package scripting
 
 import (
 	"log"
+	"sort"
 	"sync"
 	"time"
 
@@ -60,7 +61,15 @@ type Engine struct {
 	HUDVisible     bool
 	MessageText    string
 	MessageVisible bool
+	MessageTTL     float64 // seconds left before the message auto-hides (0 = sticky)
 	CurrentMenu    string
+
+	// HUDText holds named HUD text lines set by scripts (setHUDText). The
+	// renderer draws them sorted by key, so scripts control the order.
+	HUDText map[string]string
+
+	// EndText is the optional headline passed to winGame/loseGame.
+	EndText string
 
 	// Effects.
 	Effects *renderer.EffectsConfig
@@ -72,7 +81,13 @@ type Engine struct {
 	OnWin       func()
 	OnLose      func()
 	OnMapChange func(mapName string)
+	OnRestart   func()                     // restartMap()
+	OnExit      func()                     // exitGame()
+	OnDoor      func(id string, open bool) // unlockDoor/lockDoor
 }
+
+// quietEvents are emitted every frame; logging them would flood the log.
+var quietEvents = map[string]bool{"onUpdate": true}
 
 // EntityState holds minimal entity data for scripting.
 type EntityState struct {
@@ -113,6 +128,7 @@ func NewEngine() *Engine {
 		Triggers:      make(map[string]*TriggerState),
 		Vars:          make(map[string]interface{}),
 		Timers:        make(map[string]*TimerState),
+		HUDText:       make(map[string]string),
 		HUDVisible:    true,
 		Volume:        1.0,
 		listeners:     make(map[string][]func(args ...interface{})),
@@ -136,7 +152,9 @@ func (e *Engine) Emit(event string, args ...interface{}) {
 	listeners := e.listeners[event]
 	e.mu.RUnlock()
 
-	log.Printf("[Event] %s (listeners: %d)", event, len(listeners))
+	if !quietEvents[event] {
+		log.Printf("[Event] %s (listeners: %d)", event, len(listeners))
+	}
 
 	for _, fn := range listeners {
 		func(f func(args ...interface{})) {
@@ -387,15 +405,60 @@ func (e *Engine) UnfreezeEnemy(id string) {
 
 // --- Map API ---
 
-// UnlockDoor unlocks a door (placeholder).
+// UnlockDoor opens a door. The host (level runtime) applies it to the map via
+// OnDoor; without a host it only emits the event.
 func (e *Engine) UnlockDoor(id string) {
 	log.Printf("[Script] UnlockDoor: %s", id)
+	if e.OnDoor != nil {
+		e.OnDoor(id, true)
+	}
 	e.Emit("onDoorOpen", id)
 }
 
-// LockDoor locks a door (placeholder).
+// LockDoor closes a door via OnDoor.
 func (e *Engine) LockDoor(id string) {
 	log.Printf("[Script] LockDoor: %s", id)
+	if e.OnDoor != nil {
+		e.OnDoor(id, false)
+	}
+}
+
+// --- Game flow API ---
+
+// WinGame ends the game with a win. text is an optional end-screen headline.
+func (e *Engine) WinGame(text string) {
+	e.mu.Lock()
+	e.EndText = text
+	e.mu.Unlock()
+	e.Emit("onWin")
+	if e.OnWin != nil {
+		e.OnWin()
+	}
+}
+
+// LoseGame ends the game with a loss. text is an optional end-screen headline.
+func (e *Engine) LoseGame(text string) {
+	e.mu.Lock()
+	e.EndText = text
+	e.mu.Unlock()
+	e.Emit("onLose")
+	if e.OnLose != nil {
+		e.OnLose()
+	}
+}
+
+// RestartMap asks the host to reload the current level.
+func (e *Engine) RestartMap() {
+	if e.OnRestart != nil {
+		e.OnRestart()
+	}
+}
+
+// ExitGame asks the host to close the game.
+func (e *Engine) ExitGame() {
+	if e.OnExit != nil {
+		e.OnExit()
+	}
 }
 
 // AudioPlayer is the interface for audio playback (implemented by systems.AudioSystem).
@@ -452,13 +515,72 @@ func (e *Engine) SetVolume(vol float64) {
 
 // --- UI API ---
 
-// ShowMessage displays a HUD message.
+// ShowMessage displays a HUD message until hidden or replaced.
 func (e *Engine) ShowMessage(text string) {
+	e.ShowMessageFor(text, 0)
+}
+
+// ShowMessageFor displays a HUD message that auto-hides after seconds (0 = sticky).
+func (e *Engine) ShowMessageFor(text string, seconds float64) {
+	if seconds != seconds || seconds < 0 { // NaN (e.g. JS undefined) or negative
+		seconds = 0
+	}
 	e.mu.Lock()
 	e.MessageText = text
 	e.MessageVisible = true
+	e.MessageTTL = seconds
 	e.mu.Unlock()
 	log.Printf("[Script] ShowMessage: %s", text)
+}
+
+// TickMessage counts down a timed message; call once per frame with dt.
+func (e *Engine) TickMessage(dt float64) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.MessageVisible && e.MessageTTL > 0 {
+		e.MessageTTL -= dt
+		if e.MessageTTL <= 0 {
+			e.MessageTTL = 0
+			e.MessageVisible = false
+		}
+	}
+}
+
+// CurrentMessage returns the visible HUD message, or "".
+func (e *Engine) CurrentMessage() string {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	if !e.MessageVisible {
+		return ""
+	}
+	return e.MessageText
+}
+
+// SetHUDText sets (or with empty text, clears) a named HUD text line.
+func (e *Engine) SetHUDText(key, text string) {
+	e.mu.Lock()
+	if text == "" {
+		delete(e.HUDText, key)
+	} else {
+		e.HUDText[key] = text
+	}
+	e.mu.Unlock()
+}
+
+// HUDLines returns the HUD text lines ordered by key.
+func (e *Engine) HUDLines() []string {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	keys := make([]string, 0, len(e.HUDText))
+	for k := range e.HUDText {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	lines := make([]string, 0, len(keys))
+	for _, k := range keys {
+		lines = append(lines, e.HUDText[k])
+	}
+	return lines
 }
 
 // HideMessage hides the HUD message.
