@@ -22,6 +22,13 @@ func HorPlusFOV(fov16x9, aspect float64) float64 {
 	return 2 * math.Atan(math.Tan(fov16x9/2)*aspect/(16.0/9.0))
 }
 
+// Focal is the projection distance in pixels for a screen width and half
+// horizontal FOV. Both walls (vertically) and the horizontal mapping use it,
+// so pixels are square at every aspect ratio and FOV.
+func Focal(screenW, halfFOV float64) float64 {
+	return screenW / 2 / math.Tan(halfFOV)
+}
+
 // fov is the horizontal FOV used for this frame's aspect ratio.
 func (rc *Raycaster) fov() float64 {
 	if rc.screenH == 0 {
@@ -64,6 +71,9 @@ type frame struct {
 	sw, sh            int
 	fsw, fsh          float64
 	halfFOV           float64
+	focal             float64 // projection distance in pixels (same for x and y)
+	dirX, dirY        float64 // view direction
+	planeX, planeY    float64 // camera plane (half width at distance 1)
 	horizon           float64 // screen row of the horizon (float)
 	pitchShift        float64
 	camHeight         float64
@@ -80,6 +90,10 @@ func (rc *Raycaster) renderToBuffer(sprites []*Sprite) {
 	f := &frame{sw: int(rc.screenW), sh: int(rc.screenH)}
 	f.fsw, f.fsh = float64(f.sw), float64(f.sh)
 	f.halfFOV = rc.fov() / 2
+	f.focal = Focal(f.fsw, f.halfFOV)
+	f.dirX, f.dirY = math.Cos(rc.Player.Angle), math.Sin(rc.Player.Angle)
+	t := math.Tan(f.halfFOV)
+	f.planeX, f.planeY = -f.dirY*t, f.dirX*t
 	f.pitchShift = rc.Player.Pitch * f.fsh
 	f.horizon = f.fsh/2 + f.pitchShift
 	f.camHeight = rc.Player.CameraHeight()
@@ -98,8 +112,8 @@ func (rc *Raycaster) renderToBuffer(sprites []*Sprite) {
 	if f.floorTex != nil || f.ceilTex != nil {
 		f.rowDist = make([]float64, f.sh)
 		f.rowShade = make([]float64, f.sh)
-		ceilK := f.fsh * (0.5 - f.camHeight)
-		floorK := f.fsh * (0.5 + f.camHeight)
+		ceilK := f.focal * (0.5 - f.camHeight)
+		floorK := f.focal * (0.5 + f.camHeight)
 		for y := 0; y < f.sh; y++ {
 			var d float64
 			if fy := float64(y); fy < f.horizon {
@@ -139,8 +153,11 @@ func usableTex(t *Texture2D) *Texture2D {
 func (rc *Raycaster) castColumn(f *frame, x int) {
 	sw, sh := f.sw, f.sh
 	cameraX := 2.0*float64(x)/f.fsw - 1.0
-	rayAngle := f.angle + cameraX*f.halfFOV
-	rayDirX, rayDirY := math.Cos(rayAngle), math.Sin(rayAngle)
+	// Rays through a flat camera plane (not evenly spaced angles), so that
+	// the DDA's distance along the un-normalised ray is the perpendicular
+	// distance to the plane: straight walls stay straight (no fisheye bow).
+	rayDirX := f.dirX + f.planeX*cameraX
+	rayDirY := f.dirY + f.planeY*cameraX
 
 	mapX, mapY := int(math.Floor(f.px)), int(math.Floor(f.py))
 	deltaDistX, deltaDistY := math.Abs(1/rayDirX), math.Abs(1/rayDirY)
@@ -190,8 +207,8 @@ func (rc *Raycaster) castColumn(f *frame, x int) {
 		} else {
 			perpDist = sideDistY - deltaDistY
 		}
-		perpDist = math.Max(perpDist, 0.001)
-		wallHeight = f.fsh / perpDist
+		perpDist = math.Max(perpDist, 0.05) // near plane
+		wallHeight = f.focal / perpDist
 		vOffset = f.camHeight*wallHeight + f.pitchShift
 		wallTop = (f.fsh-wallHeight)/2 + vOffset
 		wallBottom = wallTop + wallHeight

@@ -779,7 +779,8 @@ func (rc *Raycaster) drawSprites(sprites []*Sprite) {
 		}
 
 		// Screen X: map angular offset to screen columns.
-		screenX := (sw / 2.0) + (delta/halfFOV)*(sw/2.0)
+		// Same flat camera-plane projection as the walls.
+		screenX := (sw / 2.0) + math.Tan(delta)*Focal(sw, halfFOV)
 
 		sorted = append(sorted, spriteData{
 			s:        s,
@@ -812,14 +813,15 @@ func (rc *Raycaster) drawSprites(sprites []*Sprite) {
 		perpDist := sd.perpDist
 
 		// Sprite height on screen (proportional to 1/distance).
-		spriteHeight := (sh / perpDist) * s.Scale
+		focal := Focal(sw, halfFOV)
+		spriteHeight := (focal / perpDist) * s.Scale
 		spriteWidth := spriteHeight // square sprites
 
 		// Vertical center offset by sprite Z, plus the camera's vertical shift
 		// (jump + stance parallax and pitch) so grounded sprites stay anchored
 		// to the floor and track the player's vertical aim.
-		camShift := rc.Player.CameraHeight()*sh/perpDist + rc.Player.Pitch*sh
-		drawStartY := (sh-spriteHeight)/2.0 + s.Z*sh/perpDist + camShift
+		camShift := rc.Player.CameraHeight()*focal/perpDist + rc.Player.Pitch*sh
+		drawStartY := (sh-spriteHeight)/2.0 + s.Z*focal/perpDist + camShift
 		drawEndY := drawStartY + spriteHeight
 
 		// Horizontal bounds.
