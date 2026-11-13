@@ -451,6 +451,11 @@ func (app *App) init() error {
 	if err := app.texManager.GenerateDefaultTextures(); err != nil {
 		return fmt.Errorf("texture generation: %w", err)
 	}
+	if names, err := app.texManager.LoadWallOverrides(projectPath("assets", "textures")); err != nil {
+		log.Printf("Warning: wall textures: %v", err)
+	} else if len(names) > 0 {
+		log.Printf("Project wall textures: %v", names)
+	}
 	app.loadDemoSpriteSheets()
 
 	// --- Audio system (register sounds on main thread, init backend in goroutine) ---

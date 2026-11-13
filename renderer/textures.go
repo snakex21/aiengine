@@ -13,6 +13,7 @@ import (
 	"image/png"
 	"math"
 	"os"
+	"path/filepath"
 
 	"github.com/go-gl/gl/v4.1-core/gl"
 )
@@ -572,6 +573,43 @@ func (tm *TextureManager) GenerateDefaultTextures() error {
 	}
 
 	return nil
+}
+
+// WallTextureNames are the textures the raycaster uses for wall cell types.
+var WallTextureNames = []string{"brick", "stone", "metal", "wood"}
+
+// LoadWallOverrides replaces generated wall textures with <dir>/<name>.png
+// where present. Images must be square with a power-of-two size (the
+// raycaster wraps texture rows with a bit mask). Returns the names loaded.
+func (tm *TextureManager) LoadWallOverrides(dir string) ([]string, error) {
+	var loaded []string
+	for _, name := range WallTextureNames {
+		path := filepath.Join(dir, name+".png")
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			return loaded, err
+		}
+		img, err := png.Decode(f)
+		f.Close()
+		if err != nil {
+			return loaded, fmt.Errorf("decoding %s: %w", path, err)
+		}
+		b := img.Bounds()
+		if b.Dx() != b.Dy() || b.Dy()&(b.Dy()-1) != 0 {
+			return loaded, fmt.Errorf("%s: wall textures must be square power-of-two, got %dx%d", path, b.Dx(), b.Dy())
+		}
+		if old := tm.textures[name]; old != nil {
+			gl.DeleteTextures(1, &old.ID)
+		}
+		if _, err := tm.CreateFromImage(name, img); err != nil {
+			return loaded, err
+		}
+		loaded = append(loaded, name)
+	}
+	return loaded, nil
 }
 
 // Delete releases all textures.
