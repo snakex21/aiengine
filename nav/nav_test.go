@@ -121,3 +121,25 @@ func TestLineClear(t *testing.T) {
 		t.Fatal("LineClear inconsistent")
 	}
 }
+
+// Regression: near a wall LineClear (with body radius) fails, and when the
+// enemy was already in the player's cell FindPath returned a 1-cell path, so
+// Steer gave up and the enemy stood still out of attack range.
+func TestSteerFinalApproachInsideTargetCell(t *testing.T) {
+	g := grid(`
+#####
+#...#
+#####`)
+	// Player hugs the north wall of cell (2,1); enemy at the south-west of the
+	// same cell.
+	dx, dy, ok := Steer(g, 2.1, 1.85, 2.85, 1.12, 0.2)
+	if !ok || dx <= 0 || dy >= 0 {
+		t.Fatalf("steer (%.2f, %.2f) ok=%v, want towards the player", dx, dy, ok)
+	}
+	// Adjacent cell, player close to a wall: must head to the player, not
+	// just to the centre of the player's cell.
+	dx, dy, ok = Steer(g, 1.5, 1.5, 2.9, 1.12, 0.2)
+	if !ok || dx <= 0 {
+		t.Fatalf("adjacent steer (%.2f, %.2f) ok=%v", dx, dy, ok)
+	}
+}

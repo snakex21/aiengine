@@ -117,7 +117,16 @@ func Steer(g Grid, x, y, tx, ty, radius float64) (dx, dy float64, ok bool) {
 	if LineClear(g, x, y, tx, ty, radius) {
 		return unit(tx-x, ty-y)
 	}
-	path := FindPath(g, CellAt(x, y), CellAt(tx, ty), 0)
+	from, goal := CellAt(x, y), CellAt(tx, ty)
+	// Same cell, or the next cell is the target's: the remaining way is
+	// inside open cells, so head straight for the target point (aiming at a
+	// cell centre - or giving up - left enemies standing out of reach when
+	// the player hugged a wall).
+	if from == goal || (math.Abs(float64(from.X-goal.X)) <= 1 && math.Abs(float64(from.Y-goal.Y)) <= 1 &&
+		!g.Solid(goal.X, from.Y) && !g.Solid(from.X, goal.Y)) {
+		return unit(tx-x, ty-y)
+	}
+	path := FindPath(g, from, goal, 0)
 	if len(path) < 2 {
 		return 0, 0, false
 	}
