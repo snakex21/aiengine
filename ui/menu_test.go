@@ -198,9 +198,24 @@ func TestSettingsRowsAdjustAndClamp(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		m.Input(Down)
 	} // resolution
+	m.Input(Left)
+	m.Input(Left)
+	if !s.Native() || m.ValueText("resolution") != "Native" {
+		t.Fatalf("native: %+v", s)
+	}
+	m.Input(Right)
+	m.Input(Right)
 	m.Input(Right)
 	if s.Width != 1600 || s.Height != 900 {
 		t.Fatalf("resolution %dx%d", s.Width, s.Height)
+	}
+	m.Input(Down) // render scale
+	m.Input(Right)
+	if s.RenderScale != 1.25 || m.ValueText("render_scale") != "125%" {
+		t.Fatalf("render scale %v", s.RenderScale)
+	}
+	for i := 0; i < 20; i++ {
+		m.Input(Left) // wraps around the list
 	}
 	m.Input(Down)
 	m.Input(Accept)

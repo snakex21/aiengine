@@ -553,7 +553,7 @@ func (rc *Raycaster) drawHUDText(sw, sh int) {
 	scale := UIScale(sh)
 	if rc.OverlayTitle == "" {
 		for i, line := range rc.HUDLines {
-			DrawTextScaled(rc.ui, sw, sh, 12, 12+FontAccentRows*scale+i*(FontH+FontAccentRows+1)*scale, line, white, scale)
+			DrawTextScaled(rc.ui, sw, sh, 6*scale, 6*scale+FontAccentRows*scale+i*(FontH+FontAccentRows+1)*scale, line, white, scale)
 		}
 	}
 

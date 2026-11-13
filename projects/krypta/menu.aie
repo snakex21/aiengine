@@ -53,6 +53,8 @@ SCREEN settings
   LABEL music_volume "Muzyka"
   LABEL sfx_volume "Efekty"
   LABEL resolution "Rozdzielczość"
+  LABEL native "Natywna (monitor)"
+  LABEL render_scale "Skala renderowania"
   LABEL fullscreen "Pełny ekran"
   LABEL fov "Pole widzenia"
   LABEL on "Tak"

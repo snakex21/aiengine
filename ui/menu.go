@@ -29,7 +29,7 @@ const (
 // Settings rows generated for the "settings" screen, in display order.
 var settingsRows = []string{
 	"mouse_sensitivity", "invert_y", "master_volume", "music_volume",
-	"sfx_volume", "resolution", "fullscreen", "fov",
+	"sfx_volume", "resolution", "render_scale", "fullscreen", "fov",
 }
 
 // Default (English) labels for generated rows; menu files override them
@@ -41,6 +41,8 @@ var defaultLabels = map[string]string{
 	"music_volume":      "Music volume",
 	"sfx_volume":        "Effects volume",
 	"resolution":        "Resolution",
+	"render_scale":      "Render scale",
+	"native":            "Native",
 	"fullscreen":        "Fullscreen",
 	"fov":               "Field of view",
 	"back":              "Back",
@@ -304,6 +306,15 @@ func (m *Menu) adjust(key string, step int) bool {
 		s.Fullscreen = !s.Fullscreen
 	case "fov":
 		s.FOV += 5 * f
+	case "render_scale":
+		idx := 0
+		for i, v := range settings.RenderScales {
+			if v <= s.RenderScale+1e-9 {
+				idx = i
+			}
+		}
+		n := len(settings.RenderScales)
+		s.RenderScale = settings.RenderScales[((idx+step)%n+n)%n]
 	case "resolution":
 		idx := -1
 		for i, r := range settings.Resolutions {
@@ -353,7 +364,12 @@ func (m *Menu) ValueText(key string) string {
 	case "sfx_volume":
 		return fmt.Sprintf("%d%%", int(s.SfxVolume*100+0.5))
 	case "resolution":
+		if s.Native() {
+			return m.label(m.Def.Screens[scr.Name], "native")
+		}
 		return fmt.Sprintf("%dx%d", s.Width, s.Height)
+	case "render_scale":
+		return fmt.Sprintf("%.0f%%", s.RenderScale*100)
 	case "fullscreen":
 		return onOff(s.Fullscreen)
 	case "fov":

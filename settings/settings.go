@@ -9,7 +9,8 @@
 //	MASTER_VOLUME 1.0
 //	MUSIC_VOLUME 0.7
 //	SFX_VOLUME 1.0
-//	RESOLUTION 1280x720
+//	RESOLUTION 1280x720      (or "native" = the monitor's size)
+//	RENDER_SCALE 100         (percent of the resolution actually rendered)
 //	FULLSCREEN no
 //	FOV 66
 package settings
@@ -26,8 +27,13 @@ import (
 // FileName is the settings file created in the project directory.
 const FileName = "settings.aie"
 
-// Resolutions offered by the settings menu (internal render size).
-var Resolutions = [][2]int{{960, 540}, {1280, 720}, {1600, 900}, {1920, 1080}}
+// Resolutions offered by the settings menu; {0, 0} means the monitor's
+// native size.
+var Resolutions = [][2]int{{0, 0}, {960, 540}, {1280, 720}, {1600, 900}, {1920, 1080}, {2560, 1440}, {3440, 1440}, {3840, 2160}}
+
+// RenderScales offered by the settings menu (fraction of the output size
+// that is actually rendered; the image is stretched to the window).
+var RenderScales = []float64{0.5, 0.6, 0.7, 0.75, 0.8, 0.9, 1, 1.25, 1.5, 2}
 
 // Settings are the player-adjustable options.
 type Settings struct {
@@ -36,7 +42,8 @@ type Settings struct {
 	MasterVolume     float64 // 0..1
 	MusicVolume      float64 // 0..1
 	SfxVolume        float64 // 0..1
-	Width, Height    int
+	Width, Height    int     // 0x0 = native monitor size
+	RenderScale      float64 // 0.5..2
 	Fullscreen       bool
 	FOV              float64 // degrees, 50..110
 }
@@ -45,7 +52,7 @@ type Settings struct {
 func Defaults(w, h int) Settings {
 	return Settings{
 		MouseSensitivity: 1, MasterVolume: 1, MusicVolume: 0.7, SfxVolume: 1,
-		Width: w, Height: h, FOV: 66,
+		Width: w, Height: h, FOV: 66, RenderScale: 1,
 	}
 }
 
@@ -56,9 +63,33 @@ func (s *Settings) Clamp() {
 	s.MusicVolume = clamp(s.MusicVolume, 0, 1)
 	s.SfxVolume = clamp(s.SfxVolume, 0, 1)
 	s.FOV = clamp(s.FOV, 50, 110)
-	if s.Width < 320 || s.Height < 200 {
+	s.RenderScale = clamp(s.RenderScale, 0.5, 2)
+	if s.Native() {
+		return
+	}
+	if s.Width < 320 || s.Height < 200 || s.Width > 7680 || s.Height > 4320 {
 		s.Width, s.Height = 1280, 720
 	}
+}
+
+// Native reports whether the resolution follows the monitor.
+func (s Settings) Native() bool { return s.Width == 0 && s.Height == 0 }
+
+// Output returns the output size: the chosen resolution, or the monitor
+// size (monW x monH) for native.
+func (s Settings) Output(monW, monH int) (int, int) {
+	if s.Native() {
+		return monW, monH
+	}
+	return s.Width, s.Height
+}
+
+// RenderSize is the internal render resolution for an output size, after
+// the render scale (at least 320x180, at most 7680x4320).
+func (s Settings) RenderSize(outW, outH int) (int, int) {
+	w := int(float64(outW)*s.RenderScale + 0.5)
+	h := int(float64(outH)*s.RenderScale + 0.5)
+	return min(max(w, 320), 7680), min(max(h, 180), 4320)
 }
 
 func clamp(v, lo, hi float64) float64 {
@@ -109,7 +140,15 @@ func Load(path string, def Settings) (Settings, error) {
 			if numErr == nil {
 				s.SfxVolume = num
 			}
+		case "RENDER_SCALE":
+			if numErr == nil {
+				s.RenderScale = num / 100
+			}
 		case "RESOLUTION":
+			if strings.EqualFold(val, "native") {
+				s.Width, s.Height = 0, 0
+				continue
+			}
 			var w, h int
 			if _, err := fmt.Sscanf(strings.ToLower(val), "%dx%d", &w, &h); err == nil {
 				s.Width, s.Height = w, h
@@ -151,7 +190,12 @@ func (s Settings) Save(path string) error {
 	fmt.Fprintf(&b, "MASTER_VOLUME %.2f\n", s.MasterVolume)
 	fmt.Fprintf(&b, "MUSIC_VOLUME %.2f\n", s.MusicVolume)
 	fmt.Fprintf(&b, "SFX_VOLUME %.2f\n", s.SfxVolume)
-	fmt.Fprintf(&b, "RESOLUTION %dx%d\n", s.Width, s.Height)
+	if s.Native() {
+		b.WriteString("RESOLUTION native\n")
+	} else {
+		fmt.Fprintf(&b, "RESOLUTION %dx%d\n", s.Width, s.Height)
+	}
+	fmt.Fprintf(&b, "RENDER_SCALE %.0f\n", s.RenderScale*100)
 	fmt.Fprintf(&b, "FULLSCREEN %s\n", yesNo(s.Fullscreen))
 	fmt.Fprintf(&b, "FOV %.0f\n", s.FOV)
 	tmp := path + ".tmp"

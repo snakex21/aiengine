@@ -52,6 +52,9 @@ func (app *App) loadSettings(cfgW, cfgH int) (int, int) {
 		return cfgW, cfgH
 	}
 	log.Printf("Settings: %+v", s)
+	if s.Native() {
+		return cfgW, cfgH // resized to the monitor once GLFW is up (applyVideo)
+	}
 	return s.Width, s.Height
 }
 
@@ -247,25 +250,34 @@ func (app *App) applySettings() {
 // applyVideo sets the internal resolution and window/fullscreen mode.
 func (app *App) applyVideo() {
 	s := app.ms.settings
-	app.raycaster.Resize(int32(s.Width), int32(s.Height))
 	monitor := glfw.GetPrimaryMonitor()
 	mode := monitor.GetVideoMode()
+	outW, outH := s.Output(mode.Width, mode.Height)
+	if s.Fullscreen {
+		outW, outH = mode.Width, mode.Height // fullscreen always uses the monitor mode
+		if !s.Native() {
+			outW, outH = s.Width, s.Height // ...but renders the chosen size, stretched
+		}
+	}
+	rw, rh := s.RenderSize(outW, outH)
+	app.raycaster.Resize(int32(rw), int32(rh))
 	switch {
 	case s.Fullscreen && !app.fullscreen:
 		app.windowedX, app.windowedY = app.window.GetPos()
 		app.window.SetMonitor(monitor, 0, 0, mode.Width, mode.Height, mode.RefreshRate)
 		app.fullscreen = true
-		log.Printf("Fullscreen %dx%d (render %dx%d)", mode.Width, mode.Height, s.Width, s.Height)
 	case !s.Fullscreen && app.fullscreen:
-		app.window.SetMonitor(nil, app.windowedX, app.windowedY, s.Width, s.Height, 0)
+		app.window.SetMonitor(nil, app.windowedX, app.windowedY, outW, outH, 0)
 		app.fullscreen = false
 	case !s.Fullscreen:
-		if w, h := app.window.GetSize(); w != s.Width || h != s.Height {
-			app.window.SetSize(s.Width, s.Height)
-			app.window.SetPos((mode.Width-s.Width)/2, (mode.Height-s.Height)/2)
+		if w, h := app.window.GetSize(); w != outW || h != outH {
+			app.window.SetSize(outW, outH)
+			app.window.SetPos(max(0, (mode.Width-outW)/2), max(0, (mode.Height-outH)/2))
 		}
 	}
-	app.windowedW, app.windowedH = s.Width, s.Height
+	log.Printf("Video: output %dx%d fullscreen=%v, render %dx%d (%.0f%%), monitor %dx%d",
+		outW, outH, s.Fullscreen, rw, rh, s.RenderScale*100, mode.Width, mode.Height)
+	app.windowedW, app.windowedH = outW, outH
 }
 
 // menuKey maps a key press to a menu input.

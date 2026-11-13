@@ -42,3 +42,31 @@ func TestLoadMissingAndGarbage(t *testing.T) {
 		t.Fatalf("garbage handling: %+v", got)
 	}
 }
+
+func TestNativeResolutionAndRenderScale(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	s := Defaults(1280, 720)
+	s.Width, s.Height, s.RenderScale = 0, 0, 0.5
+	if err := s.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := Load(path, Defaults(1280, 720))
+	if !got.Native() || got.RenderScale != 0.5 {
+		t.Fatalf("native/scale lost: %+v", got)
+	}
+	if w, h := got.Output(3840, 2160); w != 3840 || h != 2160 {
+		t.Fatalf("native output %dx%d", w, h)
+	}
+	if w, h := got.RenderSize(3840, 2160); w != 1920 || h != 1080 {
+		t.Fatalf("render size %dx%d", w, h)
+	}
+	s.Width, s.Height, s.RenderScale = 3440, 1440, 1
+	if w, h := s.RenderSize(s.Output(0, 0)); w != 3440 || h != 1440 {
+		t.Fatalf("ultrawide render %dx%d", w, h)
+	}
+	s.RenderScale = 9
+	s.Clamp()
+	if s.RenderScale != 2 {
+		t.Fatalf("render scale clamp %v", s.RenderScale)
+	}
+}
