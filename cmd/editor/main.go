@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"unicode/utf8"
 
 	"aiengine/parser"
 
@@ -296,13 +297,12 @@ func extractGridRows(content string) []string {
 	return rows
 }
 
+// isMapDirective reports a line that ends the GRID rows: grid cells are
+// single characters, so any longer first token (PLACE, TRIGGER, FLOOR_GRID,
+// CEILING_GRID, LIGHT_GRID, ...) starts something else. Blocks the editor
+// does not edit (height and light grids) are kept verbatim on save.
 func isMapDirective(token string) bool {
-	switch strings.ToUpper(token) {
-	case "PLACE", "TRIGGER", "MUSIC", "LIGHT_AMBIENT", "FOG", "MAP", "CONDITION", "ACTION":
-		return true
-	default:
-		return false
-	}
+	return utf8.RuneCountInString(token) > 1
 }
 
 func (b *Bridge) ScanProject(dir string) (*ScanResult, error) {

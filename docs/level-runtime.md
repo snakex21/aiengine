@@ -29,6 +29,40 @@ to podłoga zapisana w `Level.Markers`.
 Tekstury ścian można podmienić plikami
 `assets/textures/{brick,stone,metal,wood}.png` (kwadrat, bok = potęga 2).
 
+### Wysokości podłogi i sufitu (opcjonalne)
+
+Każda komórka może mieć własną wysokość podłogi i sufitu: schody, podesty,
+balkony, przepaście, niskie tunele, wysokie sale. Mapy bez tych bloków
+działają jak dawniej (podłoga 0, sufit 1, oko 0.5 nad podłogą).
+
+```
+HEIGHT_STEP 0.125      # jednostka wysokości w wysokościach ściany (domyślnie 1/8)
+CEILING_HEIGHT 1.25    # domyślny sufit (wysokości ściany, domyślnie 1)
+STEP_WALL S            # tekstura ścianek stopni: W, S, M lub D (domyślnie S)
+FALL_DAMAGE 40         # HP za każdą jednostkę ściany upadku ponad FALL_SAFE
+FALL_SAFE 0.6          # bezpieczna wysokość upadku (domyślnie 0.6)
+
+FLOOR_GRID             # ten sam układ co GRID, jeden znak na komórkę
+. . 2 4 6 8 .          # . = 0, 0-9 = 0..9 jednostek, A-Z = 10..35
+. . . . . h .          # a-z = -1..-26 (doły), tu h = -8 = -1.0
+CEILING_GRID           # wysokość sufitu bezwzględnie; . = CEILING_HEIGHT
+. K K K K . .          # K = 20 jednostek = 2.5
+```
+
+Zasady ruchu (gracz i wrogowie): wejście na stopień do 0.3 (2 jednostki)
+bez skoku, wyżej tylko skokiem (szczyt skoku 0.45), zejście z dowolnej
+wysokości (upadek, z obrażeniami przy `FALL_DAMAGE`, zdarzenie
+`onPlayerFall(wysokość, obrażenia)`). Potrzebne miejsce pod sufitem: 0.6
+w pionie, 0.42 w kucki, 0.25 leżąc; pod niskim sufitem gracz nie wstanie.
+Wrogowie szukają drogi A* po stopniach, widzą gracza tylko przy czystej
+linii na wysokości oczu i nie zadają ciosów przez krawędź wyższą niż 0.45.
+Sprite'y stoją na podłodze swojej komórki (`PLACE ... y` to wysokość nad
+nią). Strzał wymaga czystej linii 3D (nie przez krawędź półki).
+
+Przykład: `maps/testy/wysokosci.aie` (z konsoli: `map maps/testy/wysokosci.aie`).
+Edytor zachowuje bloki `FLOOR_GRID`/`CEILING_GRID` przy zapisie (malowanie
+wysokości w edytorze jeszcze nie istnieje).
+
 ## PLACE
 
 ```
@@ -76,5 +110,6 @@ aiengine.exe --project <nazwa> [--screenshot plik.png] [--frames N] [--exec "kom
 
 `--screenshot` zapisuje klatkę N (domyślnie 60) i zamyka grę, `--frames`
 sam w sobie kończy po N klatkach, `--exec` wykonuje komendy konsoli po
-starcie (`tp x y [kąt]`, `god`, `fps`, `lua <kod>`, `restart`...).
+starcie (`tp x y [kąt]`, `god`, `fps`, `lua <kod>`, `restart`,
+`map <plik.aie>` - dowolna mapa projektu...).
 Przy wyjściu silnik loguje średnie FPS i zużycie pamięci (`[Perf]`).
