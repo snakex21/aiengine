@@ -23,6 +23,7 @@ import (
 
 	"aiengine/actor"
 	"aiengine/anim"
+	"aiengine/game"
 	"aiengine/input"
 	"aiengine/level"
 	"aiengine/parser"
@@ -31,7 +32,6 @@ import (
 	"aiengine/scripting"
 	"aiengine/systems"
 	"aiengine/ui"
-	"aiengine/world"
 )
 
 const (
@@ -61,9 +61,11 @@ type App struct {
 	sprites    []*renderer.Sprite
 	player     *renderer.PlayerState
 	effects    *renderer.EffectsConfig
-	enemies    []*DemoEnemy
 	playerAnim DemoPlayerAnim
-	animSets   map[string]*anim.Set // enemy animation sets by texture prefix
+
+	// w is the simulation of the running level or sandbox (package game).
+	w        *game.World
+	animSets map[string]*anim.Set // enemy animation sets by texture prefix
 
 	// Scripting.
 	scriptEngine *scripting.Engine
@@ -98,9 +100,6 @@ type App struct {
 	// Level runtime (manifest RUNTIME level); nil for the legacy demo.
 	game             *levelGame
 	winMode          windowMode
-	hurtFlash        float64 // red flash after the player is hit (decays)
-	flash            float64 // weapon (muzzle) light after a shot (decays)
-	shake            float64 // camera shake time left after a hit
 	unfocused        bool
 	focusPaused      bool // legacy pause caused by focus loss; a click resumes
 	swallowClick     bool // ignore the first click after the window regains focus
@@ -169,32 +168,6 @@ func parseRunOptions(args []string) (runOptions, error) {
 		o.frames = 60
 	}
 	return o, nil
-}
-
-// DemoEnemy is the host's view and brain of an enemy actor (the actor in
-// the scripting engine's registry holds id, HP and life).
-type DemoEnemy struct {
-	*actor.Actor
-	Sprite      *renderer.Sprite
-	Speed       float64
-	Damage      float64
-	AttackRange float64
-	SightRange  float64 // chase distance (0 = default 6.5)
-	AttackTimer float64
-	AnimTimer   float64
-	State       string
-
-	// Level runtime only: movement/melee logic and per-type sprite frames.
-	Fighter     *level.Fighter
-	HitSound    string
-	FramePrefix string // texture prefix of the 3x2 atlas frames ("" = "enemy")
-	AttackRate  float64
-	Height      float64 // headroom the body needs (closing doors, crushers)
-
-	// Sprite animation (enemy_anim.go); nil = the legacy frame cycle.
-	Anim       *anim.Player
-	painT      float64
-	deathShown bool
 }
 
 type DemoPlayerAnim struct {
@@ -652,8 +625,14 @@ func (app *App) initDemoContent() {
 	app.scriptEngine = scripting.NewEngine()
 	app.scriptEngine.Effects = app.effects
 	app.scriptEngine.AudioPlayer = app.audioSys // wire audio to scripts
-	app.scriptEngine.OnDamage = app.damageEnemyByID
-	app.spawnDemoEnemies()
+	app.w = game.New(nil, app.raycaster.Map, app.player, app.scriptEngine, app)
+	app.w.God, app.w.Noclip = app.cheat(systems.CheatGod), app.cheat(systems.CheatNoclip)
+	for _, sp := range []struct {
+		id   string
+		x, y float64
+	}{{"enemy1", 1.5, 3.5}, {"enemy2", 7.5, 2.5}, {"enemy3", 7.5, 7.5}} {
+		app.addSandboxEnemy(sp.id, "grunt", sp.x, sp.y)
+	}
 
 	// Lua bridge.
 	app.luaBridge = scripting.NewLuaBridge(app.scriptEngine)
@@ -671,6 +650,18 @@ func (app *App) initDemoContent() {
 
 	// Emit onStart event.
 	app.scriptEngine.Emit("onStart")
+}
+
+// cheat returns a reader of a console cheat (for game.World).
+func (app *App) cheat(name systems.CheatFlag) func() bool {
+	return func() bool { return app.console != nil && app.console.CheatEnabled(name) }
+}
+
+// addSandboxEnemy adds a classic chasing enemy to the sandbox.
+func (app *App) addSandboxEnemy(id, typ string, x, y float64) {
+	sprite := &renderer.Sprite{Z: 0, Scale: 0.85, TexName: app.FrameName("", 0), Alpha: 1.0, Active: true}
+	app.w.AddSandboxEnemy(id, typ, x, y, sprite)
+	app.sprites = append(app.sprites, sprite)
 }
 
 // createTestMap builds a simple test map for the raycaster.
@@ -741,9 +732,8 @@ func (app *App) loadPlayerAnimationFiles(dir string) bool {
 	return true
 }
 
-func (app *App) enemyFrame(index int) string {
-	return app.enemyFrameFor("", index)
-}
+// FrameName names frame index of a classic 3x2 enemy atlas (game.Host).
+func (app *App) FrameName(prefix string, index int) string { return app.enemyFrameFor(prefix, index) }
 
 func (app *App) enemyFrameFor(prefix string, index int) string {
 	if prefix == "" {
@@ -754,32 +744,6 @@ func (app *App) enemyFrameFor(prefix string, index int) string {
 		return name
 	}
 	return "sprite_enemy"
-}
-
-func (app *App) spawnDemoEnemies() {
-	spawns := []struct {
-		id string
-		x  float64
-		y  float64
-	}{
-		{"enemy1", 1.5, 3.5},
-		{"enemy2", 7.5, 2.5},
-		{"enemy3", 7.5, 7.5},
-	}
-
-	for _, spawn := range spawns {
-		sprite := &renderer.Sprite{X: spawn.x, Y: spawn.y, Z: 0, Scale: 0.85, TexName: app.enemyFrame(0), Alpha: 1.0, Active: true, EntityID: spawn.id}
-		enemy := &DemoEnemy{
-			Actor:       app.newEnemyActor(spawn.id, "grunt", spawn.x, spawn.y, 50),
-			Sprite:      sprite,
-			Speed:       1.15,
-			Damage:      8,
-			AttackRange: 0.85,
-			State:       "idle",
-		}
-		app.enemies = append(app.enemies, enemy)
-		app.sprites = append(app.sprites, sprite)
-	}
 }
 
 // run executes the main game loop.
@@ -891,17 +855,6 @@ func (app *App) handleInput() {
 		return
 	}
 
-	// Shoot triggers procedural gunshot sound.
-	if app.inputManager.IsJustPressed("shoot") {
-		app.scriptEngine.PlaySound("gunshot")
-		app.playerAnim.ShootTimer = 0.18
-		app.flash = 1
-		app.shootDemoEnemy()
-	}
-	// Use/open doors in front of the player (level runtime).
-	if app.game != nil && app.inputManager.IsJustPressed("interact") {
-		app.game.session.Interact(app.player.X, app.player.Y, app.player.Angle)
-	}
 	// Reload triggers footstep (test).
 	if app.inputManager.IsJustPressed("reload") {
 		app.scriptEngine.PlaySound("footstep")
@@ -926,7 +879,8 @@ func (app *App) toggleFullscreen() {
 	log.Printf("Fullscreen: %v", app.fullscreen)
 }
 
-// update handles per-frame game logic: player movement, sprite updates.
+// update runs one simulated frame: script time, the world (player,
+// enemies, combat, movers - package game) and the level view.
 func (app *App) update(dt float64) {
 	// Pause gameplay while the console or a menu is open (this also freezes
 	// game time, so script timers stop).
@@ -949,107 +903,47 @@ func (app *App) update(dt float64) {
 		app.scriptEngine.TickMessage(dt)
 	}
 
-	speed := app.player.MoveSpeed * app.player.SpeedMultiplier() * dt
+	in := app.gameInput()
+	if in.Fire {
+		app.playerAnim.ShootTimer = 0.18
+	}
+	app.w.Update(dt, in)
+	app.updatePlayerAnimation(dt, app.w.Moving)
+	if app.game != nil {
+		app.updateLevel(dt)
+	}
+	app.w.ClearEvents()
+}
 
-	moveX := 0.0
-	moveY := 0.0
-
-	if app.scriptEngine.PlayerFrozen {
-		speed = 0
+// gameInput reads the bound actions and the mouse into a game.Input.
+func (app *App) gameInput() game.Input {
+	im := app.inputManager
+	in := game.Input{
+		Forward: im.IsPressed("move_forward"), Back: im.IsPressed("move_backward"),
+		Left: im.IsPressed("move_left"), Right: im.IsPressed("move_right"),
+		Jump: im.IsJustPressed("jump"), Crouch: im.IsPressed("crouch"), ProneToggle: im.IsJustPressed("prone"),
+		Fire: im.IsJustPressed("shoot"), FireHeld: im.IsPressed("shoot"),
+		Reload: im.IsJustPressed("reload"), Interact: im.IsJustPressed("interact"),
 	}
-	if app.inputManager.IsPressed("move_forward") {
-		moveX += math.Cos(app.player.Angle) * speed
-		moveY += math.Sin(app.player.Angle) * speed
-	}
-	if app.inputManager.IsPressed("move_backward") {
-		moveX -= math.Cos(app.player.Angle) * speed
-		moveY -= math.Sin(app.player.Angle) * speed
-	}
-	if app.inputManager.IsPressed("move_left") {
-		moveX += math.Sin(app.player.Angle) * speed
-		moveY -= math.Cos(app.player.Angle) * speed
-	}
-	if app.inputManager.IsPressed("move_right") {
-		moveX -= math.Sin(app.player.Angle) * speed
-		moveY += math.Cos(app.player.Angle) * speed
-	}
-
-	// Predictive collision per-axis (wall sliding). Noclip skips walls.
-	noclip := app.console != nil && app.console.CheatEnabled(systems.CheatNoclip)
-	newX := app.player.X + moveX
-	if noclip || !app.playerBlocked(newX, app.player.Y) {
-		app.player.X = newX
-	}
-	newY := app.player.Y + moveY
-	if noclip || !app.playerBlocked(app.player.X, newY) {
-		app.player.Y = newY
-	}
-	app.updatePlayerGround()
-
-	// Stance: hold crouch to crouch; toggle prone with its key. Jumping clears
-	// any non-standing stance.
-	if app.inputManager.IsJustPressed("prone") {
-		if app.player.Stance == renderer.StanceProne {
-			app.player.SetStance(renderer.StanceStand)
-		} else {
-			app.player.SetStance(renderer.StanceProne)
-		}
-	} else if app.inputManager.IsPressed("crouch") {
-		app.player.SetStance(renderer.StanceCrouch)
-	} else if app.player.Stance == renderer.StanceCrouch && app.canStandUp() {
-		// Crouch released → stand back up (not under a low ceiling).
-		app.player.SetStance(renderer.StanceStand)
-	}
-	if app.player.Stance == renderer.StanceStand && !app.canStandUp() {
-		app.player.SetStance(renderer.StanceCrouch)
-	}
-
-	// Vertical movement: jumping and gravity.
-	if app.inputManager.IsJustPressed("jump") {
-		if app.player.Stance != renderer.StanceStand {
-			app.player.SetStance(renderer.StanceStand)
-		}
-		app.player.Jump()
-	}
-	app.player.UpdateVertical(dt)
-	app.applyFallDamage()
-
-	// Mouse look.
 	cx, cy := app.window.GetCursorPos()
 	if !app.mouseInit {
-		app.prevMouseX = cx
-		app.prevMouseY = cy
+		app.prevMouseX, app.prevMouseY = cx, cy
 		app.mouseInit = true
 	}
-	dx := cx - app.prevMouseX
-	dy := cy - app.prevMouseY
+	dx, dy := cx-app.prevMouseX, cy-app.prevMouseY
+	app.prevMouseX, app.prevMouseY = cx, cy
 	sens, invert := 1.0, false
 	if app.ms.settingsActive {
 		sens, invert = app.ms.settings.MouseSensitivity, app.ms.settings.InvertY
 	}
-	if dx != 0 {
-		app.player.Angle += dx * 0.003 * sens
+	in.Yaw = dx * 0.003 * sens
+	// Moving the mouse up (negative dy) looks up: the world shifts downward
+	// on screen and more ceiling is revealed (positive pitch = up).
+	in.Pitch = -dy * 0.0015 * sens
+	if invert {
+		in.Pitch = -in.Pitch
 	}
-	if dy != 0 {
-		// Moving the mouse up (negative dy) looks up: the world shifts downward
-		// on screen and more ceiling is revealed. Positive pitch = looking up,
-		// applied consistently to the horizon, walls, and sprites.
-		pitch := -dy * 0.0015 * sens
-		if invert {
-			pitch = -pitch
-		}
-		app.player.AddPitch(pitch)
-	}
-	app.prevMouseX = cx
-	app.prevMouseY = cy
-	app.scriptEngine.SetPlayerPosition(app.player.X, app.player.Y, app.player.Feet())
-
-	moving := moveX != 0 || moveY != 0
-	app.updatePlayerAnimation(dt, moving)
-	app.updateDemoEnemies(dt)
-	if app.game != nil {
-		app.updateLevel(dt)
-	}
+	return in
 }
 
 func (app *App) updatePlayerAnimation(dt float64, moving bool) {
@@ -1096,226 +990,6 @@ func (app *App) updatePlayerAnimation(dt float64, moving bool) {
 	app.raycaster.HUDWeaponBob = app.playerAnim.Bob
 }
 
-func (app *App) updateDemoEnemies(dt float64) {
-	for _, enemy := range app.enemies {
-		if !enemy.Alive && enemy.Sprite != nil && enemy.Sprite.Active {
-			if !enemy.deathShown {
-				app.showEnemyDeath(enemy) // killed by a script or a console command
-			}
-			if enemy.Anim != nil {
-				app.animateEnemy(enemy, dt, 0, 0) // death animation, then the corpse
-			}
-			continue
-		}
-		if !enemy.Alive || enemy.Sprite == nil || !enemy.Sprite.Active {
-			continue
-		}
-		enemy.Sprite.X, enemy.Sprite.Y = enemy.X, enemy.Y // scripts may have moved it (moveEnemy)
-		prevX, prevY := enemy.Sprite.X, enemy.Sprite.Y
-		if enemy.Sprite.Alpha < 1.0 {
-			enemy.Sprite.Alpha += float32(dt * 2.5)
-			if enemy.Sprite.Alpha > 1.0 {
-				enemy.Sprite.Alpha = 1.0
-			}
-		}
-		dx := app.player.X - enemy.Sprite.X
-		dy := app.player.Y - enemy.Sprite.Y
-		dist := math.Sqrt(dx*dx + dy*dy)
-		enemy.AttackTimer -= dt
-
-		if enemy.Fighter != nil && app.game != nil {
-			app.updateLevelEnemy(enemy, dt)
-		} else if dist <= enemy.AttackRange {
-			enemy.State = "attack"
-			if enemy.AttackTimer <= 0 {
-				enemy.AttackTimer = 1.0
-				if app.console == nil || !app.console.CheatEnabled(systems.CheatGod) {
-					app.scriptEngine.SetPlayerHP(app.scriptEngine.GetPlayerHP() - enemy.Damage)
-				}
-			}
-		} else if dist < enemy.sightRange() && (app.game == nil || !app.hasWallBetween(enemy.Sprite.X, enemy.Sprite.Y, app.player.X, app.player.Y)) {
-			enemy.State = "walk"
-			if dist > 0.001 {
-				stepX := (dx / dist) * enemy.Speed * dt
-				stepY := (dy / dist) * enemy.Speed * dt
-				if !app.isWallAt(enemy.Sprite.X+stepX, enemy.Sprite.Y) && !app.enemyBlocked(enemy, enemy.Sprite.X+stepX, enemy.Sprite.Y) {
-					enemy.Sprite.X += stepX
-				}
-				if !app.isWallAt(enemy.Sprite.X, enemy.Sprite.Y+stepY) && !app.enemyBlocked(enemy, enemy.Sprite.X, enemy.Sprite.Y+stepY) {
-					enemy.Sprite.Y += stepY
-				}
-			}
-		} else {
-			enemy.State = "idle"
-		}
-
-		app.animateEnemy(enemy, dt, enemy.Sprite.X-prevX, enemy.Sprite.Y-prevY)
-		enemy.X, enemy.Y = enemy.Sprite.X, enemy.Sprite.Y
-	}
-}
-
-func (e *DemoEnemy) sightRange() float64 {
-	if e.SightRange > 0 {
-		return e.SightRange
-	}
-	return 6.5
-}
-
-func (app *App) enemyAnimFrame(enemy *DemoEnemy) string {
-	switch enemy.State {
-	case "walk":
-		frames := []int{1, 2, 3, 2}
-		return app.enemyFrameFor(enemy.FramePrefix, frames[int(enemy.AnimTimer/0.14)%len(frames)])
-	case "attack":
-		frames := []int{4, 5}
-		return app.enemyFrameFor(enemy.FramePrefix, frames[int(enemy.AnimTimer/0.12)%len(frames)])
-	default:
-		frames := []int{0, 1}
-		return app.enemyFrameFor(enemy.FramePrefix, frames[int(enemy.AnimTimer/0.45)%len(frames)])
-	}
-}
-
-func (app *App) enemyBlocked(current *DemoEnemy, x, y float64) bool {
-	for _, other := range app.enemies {
-		if other == current || !other.Alive || other.Sprite == nil {
-			continue
-		}
-		dx := other.Sprite.X - x
-		dy := other.Sprite.Y - y
-		if dx*dx+dy*dy < 0.28*0.28 {
-			return true
-		}
-	}
-	return false
-}
-
-func (app *App) shootDemoEnemy() {
-	bestDist := math.MaxFloat64
-	var target *DemoEnemy
-	for _, enemy := range app.enemies {
-		if !enemy.Alive || enemy.Sprite == nil || !enemy.Sprite.Active {
-			continue
-		}
-		dx := enemy.Sprite.X - app.player.X
-		dy := enemy.Sprite.Y - app.player.Y
-		dist := math.Sqrt(dx*dx + dy*dy)
-		if dist > 7.0 || dist >= bestDist {
-			continue
-		}
-		angle := math.Atan2(dy, dx) - app.player.Angle
-		for angle > math.Pi {
-			angle -= 2 * math.Pi
-		}
-		for angle < -math.Pi {
-			angle += 2 * math.Pi
-		}
-		if math.Abs(angle) > 0.18 {
-			continue
-		}
-		if !world.LineOfSight(app.world(), app.player.X, app.player.Y, app.player.EyeZ(), enemy.Sprite.X, enemy.Sprite.Y, app.enemyAimHeight(enemy.Sprite)) {
-			continue
-		}
-		bestDist = dist
-		target = enemy
-	}
-	if target == nil {
-		return
-	}
-	app.damageEnemy(target, 25)
-}
-
-// newEnemyActor registers an enemy actor in the scripting engine's registry.
-func (app *App) newEnemyActor(id, typ string, x, y, hp float64) *actor.Actor {
-	a := &actor.Actor{ID: id, Type: typ, Faction: actor.Hostile, X: x, Y: y, Radius: bodyRadius,
-		HP: hp, MaxHP: hp, Alive: true}
-	app.scriptEngine.Actors.Add(a)
-	return a
-}
-
-// damageEnemyByID applies damage to an enemy by id (scripts: killEnemy,
-// setEnemyHP).
-func (app *App) damageEnemyByID(id string, dmg float64) {
-	for _, e := range app.enemies {
-		if e.ID == id {
-			app.damageEnemy(e, dmg)
-			return
-		}
-	}
-}
-
-// damageEnemy hurts an enemy (shots, crushers, scripts) and kills it at 0
-// HP: onEnemyDamage(id, type, dmg), onEnemyDead(id, type).
-func (app *App) damageEnemy(target *DemoEnemy, dmg float64) {
-	dealt, died := target.TakeDamage(dmg)
-	if dealt <= 0 {
-		return
-	}
-	target.Sprite.Alpha = 0.75
-	if target.Anim != nil && !died {
-		target.painT = enemyPainTime
-		target.Anim.Restart(anim.Pain)
-	}
-	if died {
-		app.showEnemyDeath(target)
-		if app.scriptEngine != nil {
-			app.scriptEngine.Emit("onEnemyDead", target.ID, target.Type)
-		}
-	} else if app.scriptEngine != nil {
-		app.scriptEngine.Emit("onEnemyDamage", target.ID, target.Type, dealt)
-	}
-}
-
-// showEnemyDeath starts the death animation (the body stays as a corpse)
-// or hides the enemy.
-func (app *App) showEnemyDeath(target *DemoEnemy) {
-	target.deathShown = true
-	if target.Anim != nil && target.Anim.Set.Clip(anim.Death) != nil {
-		target.Sprite.Alpha = 1
-		target.Anim.Restart(anim.Death)
-	} else {
-		target.Sprite.Active = false
-	}
-}
-
-func (app *App) hasWallBetween(x1, y1, x2, y2 float64) bool {
-	dx := x2 - x1
-	dy := y2 - y1
-	dist := math.Sqrt(dx*dx + dy*dy)
-	steps := int(dist / 0.08)
-	if steps < 1 {
-		steps = 1
-	}
-	for i := 1; i < steps; i++ {
-		t := float64(i) / float64(steps)
-		if app.raycaster.Map.GetCell(int(math.Floor(x1+dx*t)), int(math.Floor(y1+dy*t))) != renderer.CellEmpty {
-			return true
-		}
-	}
-	return false
-}
-
-func (app *App) isWallAt(x, y float64) bool {
-	const margin = 0.15
-	cx := int(math.Floor(x))
-	cy := int(math.Floor(y))
-	if app.raycaster.Map.GetCell(cx, cy) != renderer.CellEmpty {
-		return true
-	}
-	if app.raycaster.Map.GetCell(int(math.Floor(x-margin)), cy) != renderer.CellEmpty {
-		return true
-	}
-	if app.raycaster.Map.GetCell(int(math.Floor(x+margin)), cy) != renderer.CellEmpty {
-		return true
-	}
-	if app.raycaster.Map.GetCell(cx, int(math.Floor(y-margin))) != renderer.CellEmpty {
-		return true
-	}
-	if app.raycaster.Map.GetCell(cx, int(math.Floor(y+margin))) != renderer.CellEmpty {
-		return true
-	}
-	return false
-}
-
 // render draws a frame.
 func (app *App) render() {
 	// Stretch the internal image over the real framebuffer (fullscreen and
@@ -1356,20 +1030,21 @@ func (app *App) render() {
 
 	// Hit feedback: red flash on top of script effects and a short shake.
 	fx := *app.effects
-	if app.hurtFlash > 0 {
-		fx.RedTint = math.Max(fx.RedTint, app.hurtFlash)
-		app.hurtFlash = math.Max(0, app.hurtFlash-app.deltaTime*2.5)
+	w := app.w
+	if w.HurtFlash > 0 {
+		fx.RedTint = math.Max(fx.RedTint, w.HurtFlash)
+		w.HurtFlash = math.Max(0, w.HurtFlash-app.deltaTime*2.5)
 	}
 	angle, pitch := app.player.Angle, app.player.Pitch
-	if app.shake > 0 && !app.menuActive() {
-		k := app.shake * 0.06
+	if w.Shake > 0 && !app.menuActive() {
+		k := w.Shake * 0.06
 		app.player.Angle += k * math.Sin(app.totalTime*90)
 		app.player.Pitch += k * math.Cos(app.totalTime*77)
-		app.shake = math.Max(0, app.shake-app.deltaTime)
+		w.Shake = math.Max(0, w.Shake-app.deltaTime)
 	}
 	// Weapon flash: a short light at the camera after each shot.
-	app.raycaster.Flash = 0.6 * app.flash
-	app.flash = math.Max(0, app.flash-app.deltaTime*9)
+	app.raycaster.Flash = 0.6 * w.Flash
+	w.Flash = math.Max(0, w.Flash-app.deltaTime*9)
 	app.raycaster.ApplyEffects(&fx)
 	app.raycaster.Render(app.sprites)
 	app.player.Angle, app.player.Pitch = angle, pitch
@@ -1544,14 +1219,12 @@ func (app *App) consoleCommand(cmd string, args []string) string {
 		if entType == "" {
 			return "spawn <entity> [x] [y]"
 		}
-		id := app.scriptEngine.Actors.NewID("spawn")
-		sprite := &renderer.Sprite{X: x, Y: y, Z: 0, Scale: 0.85, TexName: app.enemyFrame(0), Alpha: 1.0, Active: true, EntityID: id}
-		enemy := &DemoEnemy{
-			Actor: app.newEnemyActor(id, entType, x, y, 50), Sprite: sprite,
-			Speed: 1.15, Damage: 8, AttackRange: 0.85, State: "idle",
+		if app.game != nil {
+			// Level runtime: the level's template for the type (like spawnEnemy).
+			app.scriptEngine.SpawnEnemy(entType, x, y, 0)
+		} else {
+			app.addSandboxEnemy(app.scriptEngine.Actors.NewID("spawn"), entType, x, y)
 		}
-		app.enemies = append(app.enemies, enemy)
-		app.sprites = append(app.sprites, sprite)
 		return fmt.Sprintf("spawned %s at (%.1f, %.1f)", entType, x, y)
 
 	case "give":
@@ -1568,19 +1241,17 @@ func (app *App) consoleCommand(cmd string, args []string) string {
 		target := systems.ArgString(args, 0)
 		if target != "" {
 			// Kill specific enemy.
-			for _, e := range app.enemies {
-				if e.ID == target && e.Alive {
-					app.damageEnemy(e, e.HP)
-					return fmt.Sprintf("killed %s", target)
-				}
+			if a := app.w.Actors.Get(target); a != nil && a.Alive {
+				app.w.ApplyDamage(target, game.Damage{Amount: a.HP, Kind: game.KindScript})
+				return fmt.Sprintf("killed %s", target)
 			}
 			return fmt.Sprintf("target not found: %s", target)
 		}
 		// Kill all.
 		count := 0
-		for _, e := range app.enemies {
-			if e.Alive {
-				app.damageEnemy(e, e.HP)
+		for _, a := range app.w.Actors.All() {
+			if a.Alive && a.Faction == actor.Hostile {
+				app.w.ApplyDamage(a.ID, game.Damage{Amount: a.HP, Kind: game.KindScript})
 				count++
 			}
 		}
@@ -1589,7 +1260,7 @@ func (app *App) consoleCommand(cmd string, args []string) string {
 	case "tp":
 		x := systems.ArgFloat(args, 0, app.player.X)
 		y := systems.ArgFloat(args, 1, app.player.Y)
-		app.placePlayer(x, y)
+		app.w.PlacePlayer(x, y)
 		if len(args) > 2 { // optional facing in degrees (0 = +x, 90 = +y)
 			app.player.Angle = systems.ArgFloat(args, 2, 0) * math.Pi / 180
 		}

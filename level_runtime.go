@@ -22,6 +22,7 @@ import (
 	"github.com/go-gl/glfw/v3.3/glfw"
 
 	"aiengine/anim"
+	"aiengine/game"
 	"aiengine/level"
 	"aiengine/parser"
 	"aiengine/renderer"
@@ -65,7 +66,6 @@ func (app *App) startLevel(lv *level.Level) error {
 	}
 	app.stopMoverLoops()
 	app.sprites = nil
-	app.enemies = nil
 	app.paused = false
 
 	app.player = renderer.NewPlayerState(lv.SpawnX, lv.SpawnY, lv.SpawnAngle)
@@ -75,7 +75,6 @@ func (app *App) startLevel(lv *level.Level) error {
 	app.raycaster.Map = lv.Map
 	app.raycaster.Sectors = lv.Sectors
 	app.raycaster.Player = app.player
-	app.placePlayer(lv.SpawnX, lv.SpawnY)
 	app.raycaster.OverlayTitle = ""
 	app.raycaster.OverlaySubtitle = ""
 	app.applyLevelTextures(lv)
@@ -87,30 +86,31 @@ func (app *App) startLevel(lv *level.Level) error {
 	}
 	app.raycaster.Fog = lv.Fog()
 	app.raycaster.Lights = nil
-	app.raycaster.Flash, app.flash = 0, 0
+	app.raycaster.Flash = 0
 
 	app.effects = renderer.DefaultEffects()
 	app.scriptEngine = scripting.NewEngine()
 	app.scriptEngine.Effects = app.effects
 	app.scriptEngine.AudioPlayer = app.audioSys
-	app.scriptEngine.OnDamage = app.damageEnemyByID
 	if hp, err := strconv.ParseFloat(lv.Props["PLAYER_HP"], 64); err == nil && hp > 0 {
 		app.scriptEngine.PlayerHP, app.scriptEngine.PlayerMaxHP = hp, hp
 	}
-	app.scriptEngine.SetPlayerPosition(app.player.X, app.player.Y, app.player.Feet())
 
 	g := &levelGame{lv: lv, sprites: make(map[string]*levelSprite), loops: map[string]moverLoop{}}
+	app.w = game.New(lv, nil, app.player, app.scriptEngine, app)
+	app.w.God, app.w.Noclip = app.cheat(systems.CheatGod), app.cheat(systems.CheatNoclip)
+	app.w.PlacePlayer(lv.SpawnX, lv.SpawnY)
+	app.scriptEngine.SetPlayerPosition(app.player.X, app.player.Y, app.player.Feet())
 	g.session = level.NewSession(lv, app.scriptEngine)
-	g.session.Bodies = app.moverBodies
-	g.session.HostDamage = true // crushers: damage with feedback, god mode
-	g.session.Exec.OnTeleportPlayer = func(x, y, z float64) { app.placePlayer(x, z) }
+	app.w.AttachSession(g.session) // movers see the world's bodies; crush damage via ApplyDamage
+	g.session.Exec.OnTeleportPlayer = func(x, y, z float64) { app.w.PlacePlayer(x, z) }
 	app.scriptEngine.OnRestart = func() { app.restartRequested = true }
 	app.scriptEngine.OnSpawn = func(id, typ string, x, y float64) {
 		params := map[string]string{}
 		for k, v := range lv.EnemyTypes[typ] {
 			params[k] = v
 		}
-		app.spawnLevelEnemy(level.Placement{Kind: "enemy", Type: typ, ID: id, X: x, Y: y, Params: params})
+		app.spawnEnemy(level.Placement{Kind: "enemy", Type: typ, ID: id, X: x, Y: y, Params: params})
 	}
 	app.scriptEngine.OnExit = func() { app.window.SetShouldClose(true) }
 	app.game = g
@@ -125,7 +125,7 @@ func (app *App) startLevel(lv *level.Level) error {
 	for i, p := range lv.Placements {
 		switch p.Kind {
 		case "enemy":
-			app.spawnLevelEnemy(p)
+			app.spawnEnemy(p)
 		default:
 			name := p.Params["sprite"]
 			if name == "" && (p.Kind == "item" || p.Kind == "prop") {
@@ -217,8 +217,15 @@ func (app *App) placementTexture(name string) string {
 	return tex
 }
 
-func (app *App) spawnLevelEnemy(p level.Placement) {
-	hp := p.Float("hp", 50)
+// spawnEnemy adds a level enemy to the world and its sprite to the view.
+func (app *App) spawnEnemy(p level.Placement) {
+	e := app.w.SpawnEnemy(p)
+	app.sprites = append(app.sprites, e.Sprite)
+}
+
+// EnemyView builds the sprite and animation of a level enemy (game.Host):
+// its atlas (atlas=, else ENEMY_ATLAS) and animation set.
+func (app *App) EnemyView(p level.Placement) game.EnemyView {
 	prefix := ""
 	if atlas := p.Params["atlas"]; atlas != "" {
 		prefix = "atlas_" + strings.NewReplacer("/", "_", "\\", "_", ".", "_").Replace(atlas)
@@ -229,87 +236,26 @@ func (app *App) spawnLevelEnemy(p level.Placement) {
 			}
 		}
 	}
-	scale := p.Float("scale", 0.85)
-	sprite := &renderer.Sprite{X: p.X, Y: p.Y, Scale: scale, Alpha: 1, Active: true, EntityID: p.ID}
-	sprite.Z = p.Float("z", 0)
-	enemy := &DemoEnemy{
-		Actor: app.newEnemyActor(p.ID, p.Type, p.X, p.Y, hp), Sprite: sprite,
-		Speed:       p.Float("speed", 1.15),
-		Damage:      p.Float("damage", 8),
-		AttackRange: p.Float("range", 0.85),
-		AttackRate:  p.Float("attack_rate", 1.0),
-		SightRange:  p.Float("sight", 6.5),
-		State:       "idle",
-		FramePrefix: prefix,
-		Fighter:     level.NewFighter(p, int64(len(app.enemies)+1)),
-		HitSound:    p.Params["attack_sound"],
-		Height:      p.Float("height", math.Min(renderer.HeadroomStand, scale)),
-	}
 	atlasPath := ""
 	if atlas := p.Params["atlas"]; atlas != "" {
 		atlasPath = projectPath(filepath.FromSlash(atlas))
 	}
-	enemy.Anim = anim.NewPlayer(app.enemyAnimSet(atlasPath, prefix))
-	enemy.Anim.T = float64(len(app.enemies)) * 0.37 // out of step with each other
-	sprite.Angle = math.Atan2(app.player.Y-p.Y, app.player.X-p.X)
-	if _, ok := p.Params["angle"]; ok { // initial facing in degrees (0 = +x, 90 = +z)
-		sprite.Angle = p.Float("angle", 0) * math.Pi / 180
-	}
-	sprite.TexName, sprite.Rotations = enemy.Anim.Textures()
-	app.enemies = append(app.enemies, enemy)
-	app.sprites = append(app.sprites, sprite)
+	sprite := &renderer.Sprite{Scale: p.Float("scale", 0.85), Alpha: 1, Active: true}
+	return game.EnemyView{Sprite: sprite, Anim: anim.NewPlayer(app.enemyAnimSet(atlasPath, prefix)), FramePrefix: prefix}
 }
 
-// updateLevelEnemy moves one level enemy and resolves its melee attacks
-// with level.Fighter (behaviour brain, A* steering, separation, wind-up and
-// cooldown).
-func (app *App) updateLevelEnemy(e *DemoEnemy, dt float64) {
-	f := e.Fighter
-	f.X, f.Y = e.Sprite.X, e.Sprite.Y
-	dmg := f.Step(app.game.lv, app.player.X, app.player.Y, dt, func(x, y float64) bool {
-		return app.enemyBodyBlocked(e.Sprite.X, e.Sprite.Y, x, y) || app.enemyBlocked(e, x, y)
-	})
-	e.Sprite.X, e.Sprite.Y = f.X, f.Y
-	switch f.State {
-	case "windup", "attack":
-		e.State = "attack"
-	default:
-		e.State = f.State
-	}
-	if dmg > 0 {
-		app.playerHit(e, dmg)
-	}
-}
-
-// playerHit applies enemy damage with feedback: hurt sound, red flash and a
-// short camera shake. Death goes through SetPlayerHP (onPlayerDead → lose).
-func (app *App) playerHit(e *DemoEnemy, dmg float64) {
-	if app.console != nil && app.console.CheatEnabled(systems.CheatGod) {
-		return
-	}
-	log.Printf("[Combat] %s hits player for %.0f", e.ID, dmg)
-	snd := e.HitSound
-	if snd == "" {
-		snd = "player_hurt"
-	}
-	app.scriptEngine.PlaySound(snd)
-	app.hurtFlash = 0.6
-	app.shake = 0.25
-	app.scriptEngine.SetPlayerHP(app.scriptEngine.GetPlayerHP() - dmg)
-}
-
-// updateLevel runs the session after player movement.
+// updateLevel updates the level view after the world step: animated
+// textures, picked items, mover sounds, switches, bobbing and glowing
+// sprites, and the end screen.
 func (app *App) updateLevel(dt float64) {
 	g := app.game
 	g.clock += dt
 	app.raycaster.AnimTime = g.clock
-	// Movers run inside the session: a player standing on a moving floor
-	// rides it (no fall, no step smoothing).
-	before, _ := g.lv.Support(app.player.X, app.player.Y, bodyRadius)
-	events := g.session.Update(dt, app.player.X, app.player.Y)
-	after, _ := g.lv.Support(app.player.X, app.player.Y, bodyRadius)
-	app.player.Ride(before, after)
-	for _, ev := range events {
+	for _, wev := range app.w.Events() {
+		if wev.Kind != game.EventLevel {
+			continue
+		}
+		ev := wev.Level
 		switch ev.Kind {
 		case level.EventPickup:
 			if s := g.sprites[ev.ID]; s != nil {

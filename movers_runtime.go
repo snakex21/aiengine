@@ -35,17 +35,6 @@ var defaultMoverSounds = []systems.SoundDef{
 	{Name: "mover_stop", Waveform: systems.WaveImpact, Frequency: 90, Decay: 0.3, Noise: 0.5, Volume: 0.5},
 }
 
-// moverBodies lists the player and the living enemies for the movers.
-func (app *App) moverBodies(px, py float64, buf []level.Body) []level.Body {
-	buf = append(buf, level.Body{ID: level.PlayerBody, X: px, Y: py, Radius: bodyRadius, Height: app.player.Headroom()})
-	for _, e := range app.enemies {
-		if e.Alive && e.Sprite != nil {
-			buf = append(buf, level.Body{ID: e.ID, X: e.Sprite.X, Y: e.Sprite.Y, Radius: bodyRadius, Height: e.Height})
-		}
-	}
-	return buf
-}
-
 // handleLevelEvent reacts to mover and switch events of the session.
 func (app *App) handleLevelEvent(ev level.Event) {
 	g := app.game
@@ -83,16 +72,6 @@ func (app *App) handleMoverEvent(ev level.MoverEvent) {
 		if ev.Sound != "" {
 			app.audioSys.PlaySoundVolume(ev.Sound, vol)
 		}
-	case level.MoverCrush:
-		if ev.Body == level.PlayerBody {
-			app.hurtPlayer(ev.Damage, "player_hurt")
-			return
-		}
-		for _, e := range app.enemies {
-			if e.ID == ev.Body && e.Alive {
-				app.damageEnemy(e, ev.Damage)
-			}
-		}
 	}
 }
 
@@ -112,17 +91,6 @@ func (app *App) stopMoverLoops() {
 	if app.game != nil {
 		app.game.loops = map[string]moverLoop{}
 	}
-}
-
-// hurtPlayer applies damage with feedback (not in god mode).
-func (app *App) hurtPlayer(dmg float64, sound string) {
-	if app.console != nil && app.console.CheatEnabled(systems.CheatGod) {
-		return
-	}
-	app.scriptEngine.PlaySound(sound)
-	app.hurtFlash = math.Min(0.8, 0.3+dmg/40)
-	app.shake = 0.25
-	app.scriptEngine.SetPlayerHP(app.scriptEngine.GetPlayerHP() - dmg)
 }
 
 // applyLevelAnimations loads the textures a level names beyond the standard

@@ -11,7 +11,6 @@ import (
 	"image/color"
 	"image/png"
 	"log"
-	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -139,43 +138,6 @@ func textureImage(t *renderer.Texture2D) *image.RGBA {
 
 func imageTexture(img *image.RGBA) *renderer.Texture2D {
 	return &renderer.Texture2D{Width: int32(img.Bounds().Dx()), Height: int32(img.Bounds().Dy()), Pixels: img.Pix}
-}
-
-// enemyPainTime is how long the pain state shows after a hit.
-const enemyPainTime = 0.3
-
-// animateEnemy maps the enemy's state to its animation and facing:
-// walk/idle from the fighter, attack (wind-up and hit), pain after damage,
-// death until the corpse frame. (dx, dy) is this frame's movement.
-func (app *App) animateEnemy(e *DemoEnemy, dt, dx, dy float64) {
-	a := e.Anim
-	if a == nil {
-		e.AnimTimer += dt
-		e.Sprite.TexName = app.enemyAnimFrame(e)
-		return
-	}
-	state := anim.Idle
-	switch {
-	case !e.Alive:
-		state = anim.Death
-	case e.painT > 0:
-		e.painT -= dt
-		state = anim.Pain
-	case e.State == "walk":
-		state = anim.Walk
-	case e.State == "attack":
-		state = anim.Attack
-	}
-	a.Play(state)
-	a.Update(dt)
-	if e.Alive {
-		if e.State == "attack" {
-			e.Sprite.Angle = math.Atan2(app.player.Y-e.Sprite.Y, app.player.X-e.Sprite.X)
-		} else if dx*dx+dy*dy > 1e-10 {
-			e.Sprite.Angle = math.Atan2(dy, dx)
-		}
-	}
-	e.Sprite.TexName, e.Sprite.Rotations = a.Textures()
 }
 
 // switchTextures returns the generated off/on textures of a switch without
