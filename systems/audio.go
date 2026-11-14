@@ -324,7 +324,6 @@ type AudioSystem struct {
 	SoundPaths []string
 
 	// Spatial audio parameters.
-	ListenerPos Vec3
 
 	// Volume levels and the requested music track, re-applied when the
 	// backend comes up after they were set.
@@ -521,24 +520,7 @@ func (as *AudioSystem) StopMusicTrack() {
 	}
 }
 
-// SetListenerPosition updates the 3D audio listener position.
-func (as *AudioSystem) SetListenerPosition(pos Vec3) {
-	as.ListenerPos = pos
-}
-
 // --- Spatial Audio Helper ---
-
-// SpatialVolume calculates volume attenuation based on distance.
-// maxDist is the distance at which volume reaches 0.
-func SpatialVolume(sourcePos, listenerPos Vec3, maxDist float64) float32 {
-	dist := sourcePos.Sub(listenerPos).Length()
-	if dist >= maxDist {
-		return 0
-	}
-	// Inverse square attenuation, but clamped.
-	attenuation := float32(1.0 / (1.0 + dist*dist*0.1))
-	return attenuation
-}
 
 // --- Utility ---
 

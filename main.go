@@ -73,7 +73,8 @@ type App struct {
 
 	// Console / cheats.
 	console   *systems.ConsoleState
-	humanLoop *systems.HumanLoop
+	humanLoop *systems.HumanLoop // nil unless the agent bridge is enabled
+	tasks     taskQueue          // work posted from other goroutines (human-loop)
 
 	// Config.
 	config *parser.Config
@@ -120,6 +121,7 @@ type runOptions struct {
 	frames     int    // --frames N: frame to capture / quit after (0 = run)
 	exec       string // --exec "cmd; cmd": console commands after start
 	cpuprofile string // --cpuprofile <file>: Go CPU profile of the whole run
+	agent      bool   // --agent: start the human-in-the-loop HTTP bridge
 }
 
 // parseRunOptions parses launch flags. Unknown flags are an error.
@@ -146,6 +148,8 @@ func parseRunOptions(args []string) (runOptions, error) {
 		case "--cpuprofile":
 			o.cpuprofile, err = need(i, args[i])
 			i++
+		case "--agent":
+			o.agent = true
 		case "--frames":
 			var v string
 			if v, err = need(i, args[i]); err == nil {
@@ -249,6 +253,7 @@ func main() {
 			fmt.Println("  --frames N              quit after N frames (smoke test)")
 			fmt.Println("  --exec \"cmd; cmd\"       console commands after start, e.g. \"god; tp 3 4\"")
 			fmt.Println("  --cpuprofile <file>     write a Go CPU profile of the run (go tool pprof)")
+			fmt.Println("  --agent                 start the agent bridge (HTTP on 127.0.0.1:9876)")
 			fmt.Println("  --grid2sectors <in.aie> <out.aie>  convert a GRID map into a sector map")
 			return
 		}
@@ -540,25 +545,10 @@ func (app *App) init() error {
 	app.console = systems.NewConsoleState()
 	app.console.OnCommand = app.consoleCommand
 
-	// --- Human‑in‑the‑loop ---
-	app.humanLoop = systems.NewHumanLoop()
-	app.humanLoop.OnAsk = func(question string, options []string) {
-		msg := fmt.Sprintf("[AGENT] %s", question)
-		if len(options) > 0 {
-			msg += fmt.Sprintf("  [%s]", strings.Join(options, "/"))
-		}
-		app.console.History = append(app.console.History, msg)
-		// Auto-open console so the player sees the question immediately.
-		if !app.console.Open {
-			app.console.Open = true
-		}
-		log.Printf("[HumanLoop] %s", msg)
-	}
-	if err := app.humanLoop.Start(9876); err != nil {
-		log.Printf("Warning: HumanLoop on :9876 failed: %v — trying :9877", err)
-		if err2 := app.humanLoop.Start(9877); err2 != nil {
-			log.Printf("Warning: HumanLoop failed to start: %v (agent bridge unavailable)", err2)
-		}
+	// --- Human‑in‑the‑loop (agent bridge): only with --agent, AIENGINE_AGENT=1
+	// or AGENT_BRIDGE yes in config.aie ---
+	if app.agentEnabled() {
+		app.startHumanLoop()
 	}
 
 	// --- Map & Player ---
@@ -612,6 +602,38 @@ func (app *App) init() error {
 	app.lastFrameTime = time.Now()
 	log.Println("AIEngine initialized successfully.")
 	return nil
+}
+
+// agentEnabled reports whether the human-in-the-loop HTTP bridge should run.
+func (app *App) agentEnabled() bool {
+	if app.opts.agent || os.Getenv("AIENGINE_AGENT") == "1" {
+		return true
+	}
+	return app.config != nil && strings.EqualFold(strings.TrimSpace(app.config.Raw["AGENT_BRIDGE"]), "yes")
+}
+
+// startHumanLoop starts the agent bridge. Questions arrive on the HTTP
+// goroutine and are handed to the main loop through app.tasks.
+func (app *App) startHumanLoop() {
+	app.humanLoop = systems.NewHumanLoop()
+	app.humanLoop.OnAsk = func(question string, options []string) {
+		msg := fmt.Sprintf("[AGENT] %s", question)
+		if len(options) > 0 {
+			msg += fmt.Sprintf("  [%s]", strings.Join(options, "/"))
+		}
+		log.Printf("[HumanLoop] %s", msg)
+		app.tasks.post(func() {
+			app.console.History = append(app.console.History, msg)
+			app.console.Open = true // show the question immediately
+		})
+	}
+	if err := app.humanLoop.Start(9876); err != nil {
+		log.Printf("Warning: HumanLoop on :9876 failed: %v — trying :9877", err)
+		if err2 := app.humanLoop.Start(9877); err2 != nil {
+			log.Printf("Warning: HumanLoop failed to start: %v (agent bridge unavailable)", err2)
+			app.humanLoop = nil
+		}
+	}
 }
 
 // initDemoContent sets up the legacy hard-coded demo sandbox (projects
@@ -778,6 +800,7 @@ func (app *App) run() {
 		app.trackFPS(app.deltaTime)
 
 		glfw.PollEvents()
+		app.tasks.run()
 		if app.restartRequested {
 			app.restartLevel()
 		}
@@ -1662,12 +1685,14 @@ func (app *App) consoleCommand(cmd string, args []string) string {
 
 	case "hltest":
 		if app.humanLoop == nil {
-			return "human-loop not initialized"
+			return "human-loop not running (start with --agent)"
 		}
 		go func() {
 			pq := app.humanLoop.Ask("HL test — czy dziala? (tak/nie)", []string{"tak", "nie"})
 			answer := <-pq.Answer
-			app.console.History = append(app.console.History, fmt.Sprintf("[HL answer] %s", answer))
+			app.tasks.post(func() {
+				app.console.History = append(app.console.History, fmt.Sprintf("[HL answer] %s", answer))
+			})
 		}()
 		return "human-loop test sent — type 'tak' or 'nie'"
 

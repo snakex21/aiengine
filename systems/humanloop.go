@@ -30,12 +30,15 @@ type PendingQuestion struct {
 
 // HumanLoop manages the HTTP server and pending questions.
 type HumanLoop struct {
-	mu       sync.Mutex
-	server   *http.Server
-	port     int
-	pending  *PendingQuestion
-	active   bool
-	OnAsk    func(question string, options []string) // called when a question arrives
+	mu      sync.Mutex
+	server  *http.Server
+	port    int
+	pending *PendingQuestion
+	active  bool
+	// OnAsk is called when a question arrives. It runs on the HTTP server's
+	// goroutine: hosts must hand the work over to their own thread (the
+	// game queues it for the main loop).
+	OnAsk    func(question string, options []string)
 	shutdown chan struct{}
 }
 
@@ -65,17 +68,37 @@ func (hl *HumanLoop) Start(port int) error {
 	if err != nil {
 		return fmt.Errorf("humanloop listen: %w", err)
 	}
+	hl.server.Addr = ln.Addr().String() // real port when port was 0
 
+	hl.mu.Lock()
 	hl.active = true
+	hl.mu.Unlock()
 	go func() {
 		log.Printf("[HumanLoop] listening on http://%s", hl.server.Addr)
 		if err := hl.server.Serve(ln); err != nil && err != http.ErrServerClosed {
 			log.Printf("[HumanLoop] server error: %v", err)
 		}
+		hl.mu.Lock()
 		hl.active = false
+		hl.mu.Unlock()
 	}()
 
 	return nil
+}
+
+// Addr returns the server's listen address (host:port) after Start.
+func (hl *HumanLoop) Addr() string {
+	if hl.server == nil {
+		return ""
+	}
+	return hl.server.Addr
+}
+
+// Active reports whether the HTTP server is running.
+func (hl *HumanLoop) Active() bool {
+	hl.mu.Lock()
+	defer hl.mu.Unlock()
+	return hl.active
 }
 
 // Stop gracefully shuts down the HTTP server.

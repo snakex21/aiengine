@@ -360,9 +360,6 @@ func (lb *LuaBridge) registerAPI() {
 		y := float64(L.CheckNumber(2))
 		z := float64(L.CheckNumber(3))
 		duration := float64(L.CheckNumber(4))
-		if OnMoveCamera != nil {
-			OnMoveCamera(x, y, z, duration)
-		}
 		log.Printf("[Lua] moveCamera(%f, %f, %f, %f) stub", x, y, z, duration)
 		return 0
 	}))
@@ -370,24 +367,17 @@ func (lb *LuaBridge) registerAPI() {
 	L.SetGlobal("shakeCamera", L.NewFunction(func(L *lua.LState) int {
 		intensity := float64(L.CheckNumber(1))
 		duration := float64(L.CheckNumber(2))
-		if OnShakeCamera != nil {
-			OnShakeCamera(intensity, duration)
+		if e.OnShakeCamera != nil {
+			e.OnShakeCamera(intensity, duration)
 		}
 		return 0
 	}))
 
 	L.SetGlobal("lookAt", L.NewFunction(func(L *lua.LState) int {
-		x := float64(L.CheckNumber(1))
-		y := float64(L.CheckNumber(2))
-		z := float64(L.CheckNumber(3))
-		duration := float64(0.0)
-		if L.GetTop() >= 4 {
-			duration = float64(L.CheckNumber(4))
-		}
-		if OnLookAt != nil {
-			OnLookAt(x, y, z, duration)
-		}
-		return 0
+		L.CheckNumber(1)
+		L.CheckNumber(2)
+		L.CheckNumber(3)
+		return 0 // not implemented yet (cutscene cameras)
 	}))
 
 	// --- Event API ---

@@ -36,3 +36,29 @@ func TestParseExecFrames(t *testing.T) {
 		t.Fatalf("parseExec = %v", got)
 	}
 }
+
+// Work posted from other goroutines only runs inside run() on the caller's
+// goroutine (go test -race checks the shared slice).
+func TestTaskQueueRunsOnMainGoroutine(t *testing.T) {
+	var q taskQueue
+	history := []string{}
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < 100; i++ {
+			q.post(func() { history = append(history, "x") })
+		}
+		close(done)
+	}()
+	for {
+		q.run()
+		select {
+		case <-done:
+			q.run()
+			if len(history) != 100 {
+				t.Fatalf("ran %d tasks", len(history))
+			}
+			return
+		default:
+		}
+	}
+}

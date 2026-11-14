@@ -399,3 +399,33 @@ func (tr *TriggerRegistry) Tick() {
 		}
 	}
 }
+
+// parseFloat reads a number leniently: an optional leading '-', digits and
+// one decimal point; any other character is skipped ("30s" = 30).
+func parseFloat(s string) float64 {
+	var result float64
+	frac := 1.0
+	decimal := false
+	sign := 1.0
+	for i, ch := range s {
+		if i == 0 && ch == '-' {
+			sign = -1.0
+			continue
+		}
+		if ch == '.' {
+			decimal = true
+			continue
+		}
+		if ch < '0' || ch > '9' {
+			continue
+		}
+		digit := float64(ch - '0')
+		if decimal {
+			frac *= 0.1
+			result += digit * frac
+		} else {
+			result = result*10 + digit
+		}
+	}
+	return result * sign
+}

@@ -38,10 +38,7 @@ type Engine struct {
 	Entities map[string]*EntityState
 
 	// Map.
-	MapName   string
-	MapData   *renderer.MapData
-	Raycaster *renderer.Raycaster
-	Sprites   *[]*renderer.Sprite
+	MapName string
 
 	// Triggers.
 	Triggers map[string]*TriggerState
@@ -86,9 +83,11 @@ type Engine struct {
 	OnWin       func()
 	OnLose      func()
 	OnMapChange func(mapName string)
-	OnRestart   func()                     // restartMap()
-	OnExit      func()                     // exitGame()
-	OnDoor      func(id string, open bool) // unlockDoor/lockDoor
+	OnRestart   func() // restartMap()
+	OnExit      func() // exitGame()
+	// shakeCamera(intensity, seconds); nil = ignored.
+	OnShakeCamera func(intensity, duration float64)
+	OnDoor        func(id string, open bool) // unlockDoor/lockDoor
 	// setLight/setLightEffect (level < 0 or effect "" = unchanged) and
 	// setCellLight; the level runtime applies them to the map's lights.
 	OnLight     func(id string, level float64, effect string) bool
@@ -857,17 +856,6 @@ func (e *Engine) Advance(dt float64) {
 	e.TickTimers()
 }
 
-// --- Camera API (callbacks to renderer) ---
-
-// OnMoveCamera is a callback for camera movement (placeholder).
-var OnMoveCamera func(x, y, z, duration float64)
-
-// OnShakeCamera is a callback for camera shake (placeholder).
-var OnShakeCamera func(intensity, duration float64)
-
-// OnLookAt is a callback for camera look target (placeholder).
-var OnLookAt func(x, y, z, duration float64)
-
 // --- Timer Tick ---
 
 // TickTimers emits onTimer for timers that have elapsed in game time. It does
@@ -886,21 +874,4 @@ func (e *Engine) TickTimers() {
 	for _, name := range elapsed {
 		e.Emit("onTimer", name)
 	}
-}
-
-// SyncPlayerFromRaycaster copies player position/angle from the renderer's player state.
-func (e *Engine) SyncPlayerFromRaycaster(player *renderer.PlayerState) {
-	e.mu.Lock()
-	e.PlayerX = player.X
-	e.PlayerY = player.Y
-	e.PlayerAngle = player.Angle
-	e.mu.Unlock()
-}
-
-// SyncPlayerToRaycaster copies script-driven position back to the raycaster player.
-func (e *Engine) SyncPlayerToRaycaster(player *renderer.PlayerState) {
-	e.mu.RLock()
-	player.X = e.PlayerX
-	player.Y = e.PlayerY
-	e.mu.RUnlock()
 }
