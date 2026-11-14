@@ -7,6 +7,7 @@ package game
 
 import (
 	"math"
+	"math/rand"
 
 	"aiengine/actor"
 	"aiengine/level"
@@ -33,8 +34,11 @@ type Input struct {
 	FireHeld                   bool // held (automatic weapons)
 	Reload                     bool // pressed this frame
 	Interact                   bool // pressed this frame
+	Slot                       int  // weapon slot key pressed this frame (0 = none)
+	Cycle                      int  // +1 next / -1 previous weapon (mouse wheel)
 	Yaw                        float64
 	Pitch                      float64
+	AimSlope                   float64 // vertical slope of the view centre (renderer.AimSlope)
 }
 
 // World is one running level (or the sandbox).
@@ -61,21 +65,30 @@ type World struct {
 
 	Clock float64 // game time of this world
 
-	enemies    []*Enemy
-	events     []Event
-	dispatched int
-	pushX      float64 // player knockback velocity
-	pushY      float64
+	enemies     []*Enemy
+	projectiles []*Projectile
+	effects     []*Effect
+	tgtBuf      []target
+	placements  map[string]level.Placement
+	rng         *rand.Rand
+	events      []Event
+	dispatched  int
+	pushX       float64 // player knockback velocity
+	pushY       float64
 }
 
 // New creates a world for a level (lv may be nil for the sandbox, then
 // grid is its map). It wires the scripting engine's actor registry and
 // script damage (killEnemy, setEnemyHP) to the world.
 func New(lv *level.Level, grid *world.MapData, player *world.PlayerState, eng *scripting.Engine, host Host) *World {
-	w := &World{Player: player, Level: lv, Script: eng, Actors: eng.Actors, Host: host, Grid: grid}
+	w := &World{Player: player, Level: lv, Script: eng, Actors: eng.Actors, Host: host, Grid: grid,
+		rng: rand.New(rand.NewSource(1)), placements: map[string]level.Placement{}}
 	if lv != nil {
 		w.Geo = lv.Geometry()
 		w.Grid = lv.Map
+		for _, p := range lv.Placements {
+			w.placements[p.ID] = p
+		}
 	} else {
 		w.Geo = grid
 	}
@@ -110,11 +123,11 @@ func (w *World) Update(dt float64, in Input) {
 	if in.Interact && w.Session != nil {
 		w.Session.Interact(w.Player.X, w.Player.Y, w.Player.Angle)
 	}
-	if in.Fire {
-		w.fireLegacy()
-	}
+	w.updatePlayerWeapon(dt, in)
 	w.Script.SetPlayerPosition(w.Player.X, w.Player.Y, w.Player.Feet())
 	w.updateEnemies(dt)
+	w.updateProjectiles(dt)
+	w.updateEffects(dt)
 	if w.Session != nil {
 		w.updateSession(dt)
 	}
@@ -254,10 +267,29 @@ func (w *World) updateSession(dt float64) {
 	after, _ := w.Level.Support(p.X, p.Y, BodyRadius)
 	p.Ride(before, after)
 	for _, ev := range events {
-		if ev.Kind == level.EventMover && ev.Mover.Kind == level.MoverCrush {
+		switch {
+		case ev.Kind == level.EventMover && ev.Mover.Kind == level.MoverCrush:
 			w.ApplyDamage(ev.Mover.Body, Damage{Amount: ev.Mover.Damage, Kind: KindCrush})
+		case ev.Kind == level.EventPickup:
+			w.pickup(ev.ID)
 		}
 		w.push(Event{Kind: EventLevel, Level: ev})
+	}
+}
+
+// pickup gives what an item carries: weapon=<name> and/or
+// ammo=<type> amount=<n> (PLACE item ... parameters).
+func (w *World) pickup(id string) {
+	p, ok := w.placements[id]
+	if !ok {
+		return
+	}
+	if name := p.Params["weapon"]; name != "" {
+		w.Script.GiveWeapon(name)
+		w.Script.SelectWeapon(name)
+	}
+	if typ := p.Params["ammo"]; typ != "" {
+		w.Script.GiveAmmo(typ, int(p.Float("amount", 10)))
 	}
 }
 

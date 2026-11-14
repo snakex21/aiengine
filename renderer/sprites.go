@@ -22,6 +22,13 @@ type Sprite struct {
 	// camera. Empty = always TexName.
 	Angle     float64
 	Rotations []string
+
+	// AbsZ: Z is the absolute height of the sprite's centre instead of an
+	// offset from its cell's floor (projectiles, effects in the air).
+	AbsZ bool
+	// Bright sprites glow: they ignore cell light, distance shading and fog
+	// (fireballs, tracers, explosions).
+	Bright bool
 }
 
 // SpriteBatch manages a collection of sprites and renders them efficiently.

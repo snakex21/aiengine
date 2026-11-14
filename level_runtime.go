@@ -92,6 +92,8 @@ func (app *App) startLevel(lv *level.Level) error {
 	app.scriptEngine = scripting.NewEngine()
 	app.scriptEngine.Effects = app.effects
 	app.scriptEngine.AudioPlayer = app.audioSys
+	app.scriptEngine.Weapons = app.loadWeaponDefs(lv)
+	app.startLoadout(lv)
 	if hp, err := strconv.ParseFloat(lv.Props["PLAYER_HP"], 64); err == nil && hp > 0 {
 		app.scriptEngine.PlayerHP, app.scriptEngine.PlayerMaxHP = hp, hp
 	}
@@ -277,7 +279,7 @@ func (app *App) updateLevel(dt float64) {
 			lights = append(lights, s.glow)
 		}
 	}
-	app.raycaster.Lights = lights
+	app.raycaster.Lights = app.w.Lights(lights)
 	if g.session.State != level.Playing {
 		app.stopMoverLoops()
 		app.showEndScreen()

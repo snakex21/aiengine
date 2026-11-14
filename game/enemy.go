@@ -1,12 +1,14 @@
 package game
 
 import (
+	"log"
 	"math"
 
 	"aiengine/actor"
 	"aiengine/anim"
 	"aiengine/level"
 	"aiengine/renderer"
+	"aiengine/weapons"
 	"aiengine/world"
 )
 
@@ -33,6 +35,13 @@ type Enemy struct {
 
 	// Sprite animation; nil = the legacy frame cycle (Host.FrameName).
 	Anim *anim.Player
+
+	// Weapon is a ranged weapon (PLACE enemy ... weapon=<WEAPON name>): the
+	// enemy keeps its distance (keep=, default half the weapon range) and
+	// shoots at the player it sees; closer in it fights like any other.
+	Weapon *weapons.Instance
+	Keep   float64
+	aimT   float64 // wind-up left before the shot
 
 	State       string // idle, walk, attack
 	AttackTimer float64
@@ -86,6 +95,14 @@ func (w *World) SpawnEnemy(p level.Placement) *Enemy {
 	}
 	if e.Anim != nil {
 		e.Anim.T = float64(len(w.enemies)) * 0.37 // out of step with each other
+	}
+	if name := p.Params["weapon"]; name != "" {
+		if def := w.Script.Weapons[name]; def != nil {
+			e.Weapon = weapons.NewInstance(def)
+			e.Keep = p.Float("keep", def.Range/2)
+		} else {
+			log.Printf("[Level] enemy %s: unknown weapon %q", p.ID, name)
+		}
 	}
 	s.Angle = math.Atan2(w.Player.Y-p.Y, w.Player.X-p.X)
 	if _, ok := p.Params["angle"]; ok { // initial facing in degrees (0 = +x, 90 = +z)
@@ -158,6 +175,9 @@ func (w *World) updateEnemies(dt float64) {
 // cooldown).
 func (w *World) stepFighter(e *Enemy, dt float64) {
 	f, a := e.Fighter, e.A
+	if e.Weapon != nil && w.stepRanged(e, dt) {
+		return
+	}
 	f.X, f.Y = a.X, a.Y
 	dmg := f.Step(w.Level, w.Player.X, w.Player.Y, dt, func(x, y float64) bool {
 		return w.enemyBodyBlocked(a.X, a.Y, x, y) || w.enemyBlocked(e, x, y)
@@ -172,6 +192,40 @@ func (w *World) stepFighter(e *Enemy, dt float64) {
 	if dmg > 0 {
 		w.ApplyDamage(PlayerID, Damage{Amount: dmg, Kind: KindMelee, Source: a.ID, X: a.X, Y: a.Y, Sound: e.HitSound})
 	}
+}
+
+// stepRanged runs a ranged enemy's attack: when it sees the player within
+// its weapon's range and not closer than Keep it stops, winds up (the
+// fighter's windup= telegraph) and shoots at the player's chest. It
+// reports whether it handled the frame (otherwise the fighter moves).
+func (w *World) stepRanged(e *Enemy, dt float64) bool {
+	f, a, wp, p := e.Fighter, e.A, e.Weapon, w.Player
+	wp.Update(dt, nil)
+	ex, ey := a.X, a.Y
+	ez := w.AimHeight(e)
+	tx, ty, tz := p.X, p.Y, p.Feet()+0.35
+	dist := math.Hypot(tx-ex, ty-ey)
+	if e.aimT > 0 {
+		e.aimT -= dt
+		e.State = "attack"
+		if e.aimT <= 0 && wp.Fire(nil) > 0 {
+			yaw := math.Atan2(ty-ey, tx-ex)
+			ox, oy := ex+math.Cos(yaw)*0.3, ey+math.Sin(yaw)*0.3
+			w.Shoot(Shot{Def: wp.Def, Shooter: a.ID, Faction: a.Faction, X: ox, Y: oy, Z: ez,
+				Yaw: yaw, Pitch: math.Atan2(tz-ez, math.Max(dist-0.3, 0.1))}, wp.Def.Pellets)
+		}
+		return true
+	}
+	ef, pf := world.FloorAt(w.Geo, ex, ey), world.FloorAt(w.Geo, tx, ty)
+	if dist >= f.Sight || dist > wp.Def.Range || dist < e.Keep || !f.Sees(w.Geo, ef, tx, ty, pf) {
+		return false
+	}
+	e.State = "idle"
+	if wp.Ready(nil) {
+		e.aimT = math.Max(f.Windup, 0.05)
+		e.State = "attack"
+	}
+	return true
 }
 
 // stepSandbox is the classic chase of the sandbox demo: walk straight at

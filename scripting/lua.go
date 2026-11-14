@@ -143,8 +143,23 @@ func (lb *LuaBridge) registerAPI() {
 	}))
 
 	L.SetGlobal("giveWeapon", L.NewFunction(func(L *lua.LState) int {
-		e.GiveWeapon(L.CheckString(1))
-		return 0
+		L.Push(lua.LBool(e.GiveWeapon(L.CheckString(1))))
+		return 1
+	}))
+
+	L.SetGlobal("giveAmmo", L.NewFunction(func(L *lua.LState) int {
+		L.Push(lua.LNumber(e.GiveAmmo(L.CheckString(1), int(L.CheckNumber(2)))))
+		return 1
+	}))
+
+	L.SetGlobal("hasWeapon", L.NewFunction(func(L *lua.LState) int {
+		L.Push(lua.LBool(e.HasWeapon(L.CheckString(1))))
+		return 1
+	}))
+
+	L.SetGlobal("selectWeapon", L.NewFunction(func(L *lua.LState) int {
+		L.Push(lua.LBool(e.SelectWeapon(L.CheckString(1))))
+		return 1
 	}))
 
 	L.SetGlobal("removeWeapon", L.NewFunction(func(L *lua.LState) int {

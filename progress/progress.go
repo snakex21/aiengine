@@ -73,15 +73,16 @@ func (c *Campaign) carries(what string) bool {
 
 // State is what carries over from one level into the next.
 type State struct {
-	HP    float64 // 0 = not carried
-	Ammo  map[string]int
-	Items map[string]int
-	Vars  map[string]float64
+	HP      float64 // 0 = not carried
+	Weapons []string
+	Ammo    map[string]int // ammo pools by type
+	Items   map[string]int
+	Vars    map[string]float64
 }
 
 // Empty reports whether nothing is carried.
 func (s State) Empty() bool {
-	return s.HP == 0 && len(s.Ammo) == 0 && len(s.Items) == 0 && len(s.Vars) == 0
+	return s.HP == 0 && len(s.Weapons) == 0 && len(s.Ammo) == 0 && len(s.Items) == 0 && len(s.Vars) == 0
 }
 
 // Capture reads the carried state from the scripting engine.
@@ -90,9 +91,12 @@ func (c *Campaign) Capture(e *scripting.Engine) State {
 	if c.carries("hp") {
 		st.HP = e.GetPlayerHP()
 	}
-	if c.carries("ammo") {
-		for _, w := range e.PlayerWeapons {
-			st.Ammo[w] = e.GetPlayerAmmo(w)
+	if c.carries("ammo") { // weapons and ammo pools
+		for _, w := range e.Loadout.Weapons {
+			st.Weapons = append(st.Weapons, w.Def.Name)
+		}
+		for typ, n := range e.Loadout.Ammo {
+			st.Ammo[typ] = n
 		}
 	}
 	if c.carries("items") {
@@ -118,8 +122,13 @@ func (s State) Apply(e *scripting.Engine) {
 	if s.HP > 0 {
 		e.PlayerHP = s.HP
 	}
-	for w, a := range s.Ammo {
-		e.SetPlayerAmmo(w, a)
+	for _, w := range s.Weapons {
+		if def := e.Weapons[w]; def != nil && !e.Loadout.Has(w) {
+			e.Loadout.Give(def)
+		}
+	}
+	for typ, n := range s.Ammo { // carried pools replace the start ammo
+		e.Loadout.Ammo[typ] = n
 	}
 	for k, v := range s.Items {
 		e.Inventory[k] = v
@@ -245,6 +254,8 @@ func (p *Progress) loadCarry(f []string) {
 		p.Carry.HP = num(f[1])
 	case f[0] == "AMMO" && len(f) >= 3:
 		p.Carry.Ammo[f[1]] = int(num(f[2]))
+	case f[0] == "WEAPON" && len(f) >= 2:
+		p.Carry.Weapons = append(p.Carry.Weapons, f[1])
 	case f[0] == "ITEM" && len(f) >= 3:
 		p.Carry.Items[f[1]] = int(num(f[2]))
 	case f[0] == "VAR" && len(f) >= 3:
@@ -269,6 +280,9 @@ func (p *Progress) Save(path string) error {
 	}
 	if p.Carry.HP > 0 {
 		fmt.Fprintf(&b, "CARRY HP %.1f\n", p.Carry.HP)
+	}
+	for _, w := range p.Carry.Weapons {
+		fmt.Fprintf(&b, "CARRY WEAPON %s\n", w)
 	}
 	for _, k := range sortedKeys(p.Carry.Ammo) {
 		fmt.Fprintf(&b, "CARRY AMMO %s %d\n", k, p.Carry.Ammo[k])

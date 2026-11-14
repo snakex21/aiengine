@@ -6,13 +6,13 @@ import "aiengine/level"
 type EventKind int
 
 const (
-	EventDamage EventKind = iota // something took damage (Target, Source, Type, Amount)
-	EventDeath                   // an actor died (Target, Type, Source)
-	EventLevel                   // a level session event (Level: pickups, movers, switches)
-	EventSound                   // a sound at a place (Name, X, Y, Z)
-	EventShot                    // a weapon fired (Source, Name = weapon, X/Y/Z = muzzle)
-	EventImpact                  // a hitscan ray or projectile stopped (X/Y/Z, Name = weapon)
-	EventExplosion               // splash damage went off (X/Y/Z, Amount = radius, Name = weapon)
+	EventDamage    EventKind = iota // something took damage (Target, Source, Type, Amount)
+	EventDeath                      // an actor died (Target, Type, Source)
+	EventLevel                      // a level session event (Level: pickups, movers, switches)
+	EventSound                      // a sound at a place (Name, X, Y, Z)
+	EventShot                       // a weapon fired (Source, Name = weapon, X/Y/Z = muzzle)
+	EventImpact                     // a hitscan ray or projectile stopped (X/Y/Z, Name = weapon)
+	EventExplosion                  // splash damage went off (X/Y/Z, Amount = radius, Name = weapon)
 )
 
 // Event is one thing that happened during a frame. Events are queued while

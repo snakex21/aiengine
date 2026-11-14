@@ -45,6 +45,17 @@ func Focal(screenW, halfFOV float64) float64 {
 	return screenW / 2 / math.Tan(halfFOV)
 }
 
+// AimSlope is the vertical slope (height per unit of distance) of the ray
+// through the screen centre for the current pitch: where the crosshair
+// points, so shots go where the player looks.
+func (rc *Raycaster) AimSlope() float64 {
+	if rc.screenW == 0 || rc.screenH == 0 {
+		return 0
+	}
+	focal := Focal(float64(rc.screenW), rc.fov()/2)
+	return rc.Player.Pitch * float64(rc.screenH) / focal
+}
+
 // fov is the horizontal FOV used for this frame's aspect ratio.
 func (rc *Raycaster) fov() float64 {
 	if rc.screenH == 0 {
@@ -562,6 +573,9 @@ func (rc *Raycaster) drawSpritesCPU(f *frame, sprites []*Sprite) {
 		// lowers it (legacy convention), Scale is its height.
 		floor, L := rc.thingFloorLight(f, s.X, s.Y)
 		topH := floor + EyeHeight - s.Z + s.Scale/2
+		if s.AbsZ {
+			topH = s.Z + s.Scale/2
+		}
 		yTop := f.rowAt(topH, depth)
 		if yTop >= f.fsh || yTop+size < 0 {
 			continue
@@ -571,7 +585,10 @@ func (rc *Raycaster) drawSpritesCPU(f *frame, sprites []*Sprite) {
 			continue
 		}
 		shade, fog := distShade(depth), int32(0)
-		if f.lit { // sprites are lit by the cell they stand in
+		switch {
+		case s.Bright:
+			shade = 256
+		case f.lit: // sprites are lit by the cell they stand in
 			shade, fog = f.shadeFor(L, lutIndex(depth), 256)
 		}
 		items = append(items, spriteItem{tex: tex, alpha: min(alpha, 256), depth: depth, x0: x0, size: size,

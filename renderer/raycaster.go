@@ -95,6 +95,8 @@ type Raycaster struct {
 	HUDMaxHP   int
 	HUDAmmo    int
 	HUDAmmoMax int
+	// HUDAmmoText is drawn above the ammo bar (weapon name and rounds).
+	HUDAmmoText string
 
 	// Scripted HUD text: lines drawn top-left, a centred message, and a
 	// full-screen overlay (end screen) that hides sprites and the weapon.
@@ -374,11 +376,15 @@ func (rc *Raycaster) drawHUD(sw, sh int) {
 			return [4]uint8{uint8(255 * (1 - f)), uint8(255 * f), 0, 220}
 		})
 	}
+	aw := 65 * u
 	if rc.HUDAmmoMax > 0 { // hidden when the game has no ammo
-		aw := 65 * u
 		bar(sw-m-aw, sh-m-bh, aw, bh, float64(rc.HUDAmmo)/float64(rc.HUDAmmoMax), func(float64) [4]uint8 {
 			return [4]uint8{220, 160, 40, 220}
 		})
+	}
+	if rc.HUDAmmoText != "" && rc.OverlayTitle == "" {
+		col := [4]uint8{255, 214, 140, 255}
+		DrawTextScaled(rc.ui, sw, sh, sw-m-TextWidth(rc.HUDAmmoText, u), sh-m-bh-(FontH+FontAccentRows+3)*u, rc.HUDAmmoText, col, u)
 	}
 }
 

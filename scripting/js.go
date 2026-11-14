@@ -129,8 +129,19 @@ func (jb *JSBridge) registerAPI() {
 	})
 
 	engineObj.Set("giveWeapon", func(call goja.FunctionCall) goja.Value {
-		e.GiveWeapon(call.Argument(0).String())
-		return goja.Undefined()
+		return vm.ToValue(e.GiveWeapon(call.Argument(0).String()))
+	})
+
+	engineObj.Set("giveAmmo", func(call goja.FunctionCall) goja.Value {
+		return vm.ToValue(e.GiveAmmo(call.Argument(0).String(), int(call.Argument(1).ToInteger())))
+	})
+
+	engineObj.Set("hasWeapon", func(call goja.FunctionCall) goja.Value {
+		return vm.ToValue(e.HasWeapon(call.Argument(0).String()))
+	})
+
+	engineObj.Set("selectWeapon", func(call goja.FunctionCall) goja.Value {
+		return vm.ToValue(e.SelectWeapon(call.Argument(0).String()))
 	})
 
 	engineObj.Set("removeWeapon", func(call goja.FunctionCall) goja.Value {

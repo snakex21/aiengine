@@ -11,6 +11,7 @@ import (
 
 	"aiengine/actor"
 	"aiengine/renderer"
+	"aiengine/weapons"
 )
 
 // Engine is the central state hub for AIEngine scripting.
@@ -19,16 +20,18 @@ type Engine struct {
 	mu sync.RWMutex
 
 	// Player state.
-	PlayerHP      float64
-	PlayerMaxHP   float64
-	PlayerX       float64
-	PlayerY       float64
-	PlayerZ       float64
-	PlayerAngle   float64
-	PlayerSpeed   float64
-	PlayerFrozen  bool
-	PlayerAmmo    map[string]int // weapon name → current ammo
-	PlayerWeapons []string
+	PlayerHP     float64
+	PlayerMaxHP  float64
+	PlayerX      float64
+	PlayerY      float64
+	PlayerZ      float64
+	PlayerAngle  float64
+	PlayerSpeed  float64
+	PlayerFrozen bool
+	// Loadout is the player's weapons and ammo pools; Weapons are the
+	// definitions known to this level (project WEAPONS file + map).
+	Loadout *weapons.Loadout
+	Weapons map[string]*weapons.Def
 
 	// HUD display values (updated by JS UI.setHP/setAmmo).
 	HUDAmmo    int
@@ -136,20 +139,20 @@ type TimerState struct {
 // NewEngine creates a new Engine with initialized state.
 func NewEngine() *Engine {
 	return &Engine{
-		PlayerHP:      100,
-		PlayerMaxHP:   100,
-		PlayerSpeed:   1.0,
-		PlayerAmmo:    make(map[string]int),
-		PlayerWeapons: []string{"pistol"},
-		Actors:        actor.NewSet(),
-		Triggers:      make(map[string]*TriggerState),
-		Vars:          make(map[string]interface{}),
-		Timers:        make(map[string]*TimerState),
-		HUDText:       make(map[string]string),
-		Inventory:     make(map[string]int),
-		HUDVisible:    true,
-		Volume:        1.0,
-		listeners:     make(map[string][]func(args ...interface{})),
+		PlayerHP:    100,
+		PlayerMaxHP: 100,
+		PlayerSpeed: 1.0,
+		Loadout:     weapons.NewLoadout(),
+		Weapons:     map[string]*weapons.Def{},
+		Actors:      actor.NewSet(),
+		Triggers:    make(map[string]*TriggerState),
+		Vars:        make(map[string]interface{}),
+		Timers:      make(map[string]*TimerState),
+		HUDText:     make(map[string]string),
+		Inventory:   make(map[string]int),
+		HUDVisible:  true,
+		Volume:      1.0,
+		listeners:   make(map[string][]func(args ...interface{})),
 	}
 }
 
@@ -235,46 +238,55 @@ func (e *Engine) SetPlayerPosition(x, y, z float64) {
 	e.mu.Unlock()
 }
 
-// GetPlayerAmmo returns current ammo for a weapon.
-func (e *Engine) GetPlayerAmmo(weapon string) int {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	return e.PlayerAmmo[weapon]
-}
-
-// SetPlayerAmmo sets ammo count for a weapon.
-func (e *Engine) SetPlayerAmmo(weapon string, ammo int) {
-	e.mu.Lock()
-	e.PlayerAmmo[weapon] = ammo
-	e.mu.Unlock()
-}
-
-// GiveWeapon adds a weapon to the player's inventory.
-func (e *Engine) GiveWeapon(weaponType string) {
-	e.mu.Lock()
-	// Check if already owned.
-	for _, w := range e.PlayerWeapons {
-		if w == weaponType {
-			e.mu.Unlock()
-			return
+// GetPlayerAmmo returns the player's rounds of a weapon (magazine plus
+// its ammo pool) or of an ammo type.
+func (e *Engine) GetPlayerAmmo(name string) int {
+	if w := e.Loadout.Find(name); w != nil {
+		if w.Def.Ammo == "" {
+			return w.Mag
 		}
+		return w.Mag + e.Loadout.Ammo[w.Def.Ammo]
 	}
-	e.PlayerWeapons = append(e.PlayerWeapons, weaponType)
-	e.PlayerAmmo[weaponType] = 30 // default ammo
-	e.mu.Unlock()
+	return e.Loadout.Ammo[name]
 }
 
-// RemoveWeapon removes a weapon from inventory.
-func (e *Engine) RemoveWeapon(weaponType string) {
-	e.mu.Lock()
-	for i, w := range e.PlayerWeapons {
-		if w == weaponType {
-			e.PlayerWeapons = append(e.PlayerWeapons[:i], e.PlayerWeapons[i+1:]...)
-			break
-		}
+// SetPlayerAmmo sets the pool of an ammo type (or of a weapon's ammo type).
+func (e *Engine) SetPlayerAmmo(name string, n int) {
+	if w := e.Loadout.Find(name); w != nil {
+		name = w.Def.Ammo
 	}
-	e.mu.Unlock()
+	if name != "" {
+		e.Loadout.Ammo[name] = max(0, n)
+	}
 }
+
+// GiveAmmo adds rounds of an ammo type (up to its cap); it returns how many
+// were taken.
+func (e *Engine) GiveAmmo(typ string, n int) int { return e.Loadout.AddAmmo(typ, n) }
+
+// GiveWeapon gives the player a weapon defined in the project or map
+// (WEAPON blocks); it reports false for unknown names. A weapon the player
+// already has only adds its start ammo.
+func (e *Engine) GiveWeapon(name string) bool {
+	def := e.Weapons[name]
+	if def == nil {
+		log.Printf("[Script] giveWeapon: unknown weapon %q", name)
+		return false
+	}
+	if e.Loadout.Give(def) {
+		e.Emit("onWeaponPickup", name)
+	}
+	return true
+}
+
+// RemoveWeapon removes a weapon from the player.
+func (e *Engine) RemoveWeapon(name string) { e.Loadout.Remove(name) }
+
+// HasWeapon reports whether the player carries a weapon.
+func (e *Engine) HasWeapon(name string) bool { return e.Loadout.Has(name) }
+
+// SelectWeapon switches to a carried weapon.
+func (e *Engine) SelectWeapon(name string) bool { return e.Loadout.Select(name) }
 
 // FreezePlayer disables player movement.
 func (e *Engine) FreezePlayer() {

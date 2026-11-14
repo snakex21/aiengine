@@ -33,6 +33,7 @@ import (
 	"aiengine/parser"
 	"aiengine/renderer"
 	"aiengine/sector"
+	"aiengine/weapons"
 	"aiengine/world"
 )
 
@@ -98,6 +99,11 @@ type Level struct {
 
 	// Switches (PLACE switch) and texture animations (texanim.go).
 	TexAnims []renderer.TexAnim
+
+	// Weapons are the WEAPON blocks of the map file (they add to and
+	// override the project's WEAPONS file). Put them after the MAP block:
+	// a WEAPON line ends the MAP section.
+	Weapons map[string]*weapons.Def
 }
 
 // DoorInfo describes a door for the host and scripts.
@@ -157,6 +163,10 @@ func FromDocument(doc *parser.AIEDocument) (*Level, error) {
 	if mapNode == nil {
 		return nil, fmt.Errorf("no MAP block")
 	}
+	defs, err := weapons.FromDocument(doc)
+	if err != nil {
+		return nil, err
+	}
 	grid := mapNode.FindChild("GRID")
 	sectorDefs := mapNode.FindChildren("SECTOR")
 	if len(sectorDefs) == 0 && (grid == nil || len(grid.Values) == 0) {
@@ -170,6 +180,7 @@ func FromDocument(doc *parser.AIEDocument) (*Level, error) {
 		doors:   make(map[string]*door),
 
 		EnemyTypes: map[string]map[string]string{},
+		Weapons:    defs,
 	}
 	for k, v := range mapNode.Properties {
 		lv.Props[strings.ToUpper(k)] = v

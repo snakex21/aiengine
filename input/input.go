@@ -131,6 +131,10 @@ func (m *Manager) SetDefaults() {
 		{"prone", glfw.KeyZ},
 		{"sprint", glfw.KeyLeftShift},
 		{"next_weapon", glfw.KeyTab},
+		{"prev_weapon", glfw.KeyQ},
+		{"weapon_1", glfw.Key1}, {"weapon_2", glfw.Key2}, {"weapon_3", glfw.Key3},
+		{"weapon_4", glfw.Key4}, {"weapon_5", glfw.Key5}, {"weapon_6", glfw.Key6},
+		{"weapon_7", glfw.Key7}, {"weapon_8", glfw.Key8}, {"weapon_9", glfw.Key9},
 		{"use_item", glfw.KeyF},
 	}
 

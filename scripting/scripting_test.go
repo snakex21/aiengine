@@ -14,8 +14,8 @@ func TestEngineCreation(t *testing.T) {
 	if e.PlayerHP != 100 {
 		t.Errorf("expected PlayerHP=100, got %f", e.PlayerHP)
 	}
-	if len(e.PlayerWeapons) != 1 || e.PlayerWeapons[0] != "pistol" {
-		t.Errorf("expected pistol in weapons, got %v", e.PlayerWeapons)
+	if e.Loadout == nil || len(e.Loadout.Weapons) != 0 {
+		t.Errorf("expected an empty loadout, got %+v", e.Loadout)
 	}
 }
 

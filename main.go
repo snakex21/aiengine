@@ -64,8 +64,13 @@ type App struct {
 	playerAnim DemoPlayerAnim
 
 	// w is the simulation of the running level or sandbox (package game).
-	w        *game.World
-	animSets map[string]*anim.Set // enemy animation sets by texture prefix
+	w *game.World
+
+	spriteBuf   []*renderer.Sprite // static sprites + projectiles/effects for this frame
+	wheel       float64            // mouse wheel steps since the last frame
+	pendingFire bool               // console "fire": shoot on the next frame
+	wasReload   bool
+	animSets    map[string]*anim.Set // enemy animation sets by texture prefix
 
 	// Scripting.
 	scriptEngine *scripting.Engine
@@ -560,6 +565,11 @@ func (app *App) init() error {
 	window.SetKeyCallback(app.keyCallback)
 	window.SetCharCallback(app.charCallback)
 	window.SetMouseButtonCallback(app.mouseButtonCallback)
+	window.SetScrollCallback(func(_ *glfw.Window, _, dy float64) {
+		if !app.menuActive() {
+			app.wheel += dy // weapon switching (game input)
+		}
+	})
 	window.SetSizeCallback(app.sizeCallback)
 	window.SetFocusCallback(app.focusCallback)
 	window.SetCloseCallback(func(w *glfw.Window) {
@@ -625,6 +635,8 @@ func (app *App) initDemoContent() {
 	app.scriptEngine = scripting.NewEngine()
 	app.scriptEngine.Effects = app.effects
 	app.scriptEngine.AudioPlayer = app.audioSys // wire audio to scripts
+	app.scriptEngine.Weapons = app.loadWeaponDefs(nil)
+	app.startLoadout(nil)
 	app.w = game.New(nil, app.raycaster.Map, app.player, app.scriptEngine, app)
 	app.w.God, app.w.Noclip = app.cheat(systems.CheatGod), app.cheat(systems.CheatNoclip)
 	for _, sp := range []struct {
@@ -855,11 +867,6 @@ func (app *App) handleInput() {
 		return
 	}
 
-	// Reload triggers footstep (test).
-	if app.inputManager.IsJustPressed("reload") {
-		app.scriptEngine.PlaySound("footstep")
-		app.playerAnim.ReloadTimer = 0.75
-	}
 }
 
 func (app *App) toggleFullscreen() {
@@ -904,13 +911,19 @@ func (app *App) update(dt float64) {
 	}
 
 	in := app.gameInput()
-	if in.Fire {
-		app.playerAnim.ShootTimer = 0.18
-	}
 	app.w.Update(dt, in)
+	app.handleWorldEvents()
+	if wp := app.scriptEngine.Loadout.CurrentWeapon(); wp != nil {
+		if wp.Reloading && !app.wasReload {
+			app.playerAnim.ReloadTimer = 0.75
+		}
+		app.wasReload = wp.Reloading
+	}
 	app.updatePlayerAnimation(dt, app.w.Moving)
 	if app.game != nil {
 		app.updateLevel(dt)
+	} else {
+		app.raycaster.Lights = app.w.Lights(app.raycaster.Lights[:0])
 	}
 	app.w.ClearEvents()
 }
@@ -924,7 +937,23 @@ func (app *App) gameInput() game.Input {
 		Jump: im.IsJustPressed("jump"), Crouch: im.IsPressed("crouch"), ProneToggle: im.IsJustPressed("prone"),
 		Fire: im.IsJustPressed("shoot"), FireHeld: im.IsPressed("shoot"),
 		Reload: im.IsJustPressed("reload"), Interact: im.IsJustPressed("interact"),
+		AimSlope: app.raycaster.AimSlope(),
 	}
+	if app.pendingFire {
+		in.Fire, app.pendingFire = true, false
+	}
+	for k := 1; k <= 9; k++ {
+		if im.IsJustPressed("weapon_" + strconv.Itoa(k)) {
+			in.Slot = k
+		}
+	}
+	switch {
+	case im.IsJustPressed("next_weapon") || app.wheel <= -1:
+		in.Cycle = 1
+	case im.IsJustPressed("prev_weapon") || app.wheel >= 1:
+		in.Cycle = -1
+	}
+	app.wheel = 0
 	cx, cy := app.window.GetCursorPos()
 	if !app.mouseInit {
 		app.prevMouseX, app.prevMouseY = cx, cy
@@ -964,6 +993,18 @@ func (app *App) updatePlayerAnimation(dt float64, moving bool) {
 		app.raycaster.HUDWeaponBob = 0
 		return
 	}
+	if view := app.weaponView(app.playerAnim.ShootTimer > 0); view != "" {
+		// A weapon with its own first-person sprite (VIEW).
+		app.playerAnim.ShootTimer = math.Max(0, app.playerAnim.ShootTimer-dt)
+		app.playerAnim.ReloadTimer = 0
+		if moving {
+			app.playerAnim.Bob += dt * 12
+		} else {
+			app.playerAnim.Bob = 0
+		}
+		app.raycaster.HUDWeaponTex, app.raycaster.HUDWeaponBob = view, app.playerAnim.Bob
+		return
+	}
 	if app.playerAnim.ShootTimer > 0 {
 		app.playerAnim.ShootTimer -= dt
 		frames := app.playerAnim.ShootFrames
@@ -1000,8 +1041,7 @@ func (app *App) render() {
 	// Sync HUD values from scripting engine.
 	app.raycaster.HUDHP = int(app.scriptEngine.GetPlayerHP())
 	app.raycaster.HUDMaxHP = int(app.scriptEngine.PlayerMaxHP)
-	app.raycaster.HUDAmmo = app.scriptEngine.HUDAmmo
-	app.raycaster.HUDAmmoMax = app.scriptEngine.HUDAmmoMax
+	app.updateWeaponHUD()
 	if app.levelEnded() {
 		app.showEndScreen() // also covers endings triggered outside update (console, events)
 	}
@@ -1046,7 +1086,7 @@ func (app *App) render() {
 	app.raycaster.Flash = 0.6 * w.Flash
 	w.Flash = math.Max(0, w.Flash-app.deltaTime*9)
 	app.raycaster.ApplyEffects(&fx)
-	app.raycaster.Render(app.sprites)
+	app.raycaster.Render(app.renderSprites())
 	app.player.Angle, app.player.Pitch = angle, pitch
 }
 
@@ -1229,13 +1269,31 @@ func (app *App) consoleCommand(cmd string, args []string) string {
 
 	case "give":
 		item := systems.ArgString(args, 0)
-		if item == "" {
-			return "give <weapon|item>"
-		}
-		if app.scriptEngine != nil {
+		switch {
+		case item == "":
+			return "give <weapon> | give ammo <type> [n] | give <item> [n]"
+		case item == "ammo":
+			typ := systems.ArgString(args, 1)
+			n := app.scriptEngine.GiveAmmo(typ, int(systems.ArgFloat(args, 2, 20)))
+			return fmt.Sprintf("gave %d %s", n, typ)
+		case app.scriptEngine.Weapons[item] != nil:
 			app.scriptEngine.GiveWeapon(item)
+			app.scriptEngine.SelectWeapon(item)
+		default:
+			app.scriptEngine.GiveItem(item, int(systems.ArgFloat(args, 1, 1)))
 		}
 		return fmt.Sprintf("gave %s", item)
+
+	case "weapon":
+		name := systems.ArgString(args, 0)
+		if !app.scriptEngine.SelectWeapon(name) && !app.scriptEngine.HasWeapon(name) {
+			return "weapon <name> (carried: " + app.carriedWeapons() + ")"
+		}
+		return "weapon " + name
+
+	case "fire":
+		app.pendingFire = true
+		return "fire"
 
 	case "kill":
 		target := systems.ArgString(args, 0)
@@ -1267,8 +1325,11 @@ func (app *App) consoleCommand(cmd string, args []string) string {
 		return fmt.Sprintf("teleported to (%.1f, %.1f)", x, y)
 
 	case "reload":
-		app.playerAnim.ReloadTimer = 0.75
-		return "weapon reloaded"
+		lo := app.scriptEngine.Loadout
+		if wp := lo.CurrentWeapon(); wp != nil && wp.Reload(lo.Ammo) {
+			return "reloading " + wp.Def.Name
+		}
+		return "nothing to reload"
 
 	case "map":
 		name := systems.ArgString(args, 0)
@@ -1382,6 +1443,15 @@ func (app *App) consoleCommand(cmd string, args []string) string {
 	default:
 		return fmt.Sprintf("unknown: %s", cmd)
 	}
+}
+
+// carriedWeapons lists the player's weapons.
+func (app *App) carriedWeapons() string {
+	var names []string
+	for _, w := range app.scriptEngine.Loadout.Weapons {
+		names = append(names, w.Def.Name)
+	}
+	return strings.Join(names, " ")
 }
 
 // advancePressed reports a fresh press of Enter, keypad Enter or Space.

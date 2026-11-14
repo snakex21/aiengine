@@ -5,6 +5,7 @@ import (
 
 	"aiengine/level"
 	"aiengine/scripting"
+	"aiengine/weapons"
 	"aiengine/world"
 )
 
@@ -22,11 +23,21 @@ PLACE enemy grunt g1 6.5 0 1.5
 // newTestWorld loads a map and runs it headlessly like the host does.
 func newTestWorld(t *testing.T, src string) (*World, *scripting.LuaBridge) {
 	t.Helper()
+	return newTestWorldWith(t, src, nil)
+}
+
+// newTestWorldWith also registers weapon definitions before the enemies
+// spawn (ranged enemies look up their weapon).
+func newTestWorldWith(t *testing.T, src string, defs map[string]*weapons.Def) (*World, *scripting.LuaBridge) {
+	t.Helper()
 	lv, err := level.FromDocumentString(src)
 	if err != nil {
 		t.Fatal(err)
 	}
 	eng := scripting.NewEngine()
+	if defs != nil {
+		eng.Weapons = defs
+	}
 	p := world.NewPlayerState(lv.SpawnX, lv.SpawnY, lv.SpawnAngle)
 	w := New(lv, nil, p, eng, nil)
 	w.PlacePlayer(lv.SpawnX, lv.SpawnY)
