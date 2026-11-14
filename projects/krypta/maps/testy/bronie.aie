@@ -1,0 +1,57 @@
+# maps/testy/bronie.aie — strzelnica: wszystkie bronie Krypty i upiór.
+# Z konsoli: map maps/testy/bronie.aie   (klawisze 1-3 / kółko myszy)
+# Bronie z weapons.aie projektu plus "rakieta" zdefiniowana w tej mapie
+# (bloki WEAPON stoją na końcu pliku, po wszystkich liniach mapy).
+
+MAP bronie
+PLAYER_ANGLE 0
+PLAYER_HP 100
+PLAYER_WEAPONS rozdzka kusza rakieta
+FLOOR_COLOR #1E1A24
+CEILING_COLOR #0C0B14
+LIGHT_AMBIENT 0.22
+FOG yes color=#0C0B14 density=0.08
+VAR_TIME_LIMIT 600
+
+GRID
+W W W W W W W W W W W W W W W W W W W W
+W . . . . . . . . . . . . . . . . . . W
+W . . . . . . S . . . . . . S . . . . W
+W . P . . . . . . . . . . . . . . . . W
+W . . . . . . S . . . . . . S . . . . W
+W . . . . . . . . . . . . . . . . . . W
+W W W W W W W W W W W W W W W W W W W W
+
+PLACE light flicker pochodnia 1.5 0.7 1.5 radius=3 level=0.5 speed=8 min=0.3
+
+PLACE enemy_type straznik 0 0 0 hp=50 speed=0.9 damage=10 sight=5 behavior=ambush
+PLACE enemy_type upior 0 0 0 hp=60 speed=0.8 damage=6 sight=14 behavior=guard weapon=ognista_kula keep=3 windup=0.45 atlas=assets/sprites/upior.png scale=0.8 z=-0.05
+PLACE enemy straznik s1 10.5 0 1.5
+PLACE enemy straznik s2 10.5 0 5.5
+PLACE enemy upior u1 17.5 0 3.5
+
+PLACE item belty b1 4.5 0 5.5 ammo=belty amount=6 scale=0.45
+
+WEAPON rakieta
+  TITLE Rakieta
+  TYPE projectile
+  SLOT 3
+  DAMAGE 80
+  RANGE 30
+  FIRE_RATE 0.8
+  MAGAZINE 3
+  RELOAD_TIME 1.5
+  AMMO rakiety
+  START_AMMO 9
+  PROJECTILE_SPEED 7
+  PROJECTILE_GRAVITY 0.3
+  PROJECTILE_SCALE 0.3
+  PROJECTILE_LIGHT 0.9
+  PROJECTILE_LIGHT_RADIUS 3
+  COLOR #FFB040
+  SPLASH_RADIUS 1.8
+  SPLASH_FALLOFF 0.2
+  KNOCKBACK 4
+  MUZZLE_LIGHT 1
+  SOUND_FIRE kula_rzut
+  SOUND_EXPLODE kula_wybuch

@@ -94,8 +94,8 @@ func cell(p level.Placement) [2]int { return [2]int{int(p.X), int(p.Y)} }
 
 func TestLevelLoadsWithExpectedContent(t *testing.T) {
 	g := start(t)
-	if n := len(g.lv.ByKind("item")); n != 8 {
-		t.Fatalf("items = %d, want 8 (6 crystals + 2 potions)", n)
+	if n := len(g.lv.ByKind("item")); n != 11 {
+		t.Fatalf("items = %d, want 11 (6 crystals, 2 potions, crossbow, 2 bolt bundles)", n)
 	}
 	if n := len(g.lv.ByKind("enemy")); n != 3 {
 		t.Fatalf("enemies = %d", n)
@@ -139,7 +139,7 @@ func TestWinByCollectingAllCrystalsAndEnteringPortal(t *testing.T) {
 
 	for i, id := range []string{"k1", "k2", "k3", "k4", "k5"} {
 		g.visit(t, id)
-		if g.s.ItemsLeft() != 8-(i+1) {
+		if g.s.ItemsLeft() != 11-(i+1) {
 			t.Fatalf("after %s items left = %d", id, g.s.ItemsLeft())
 		}
 	}

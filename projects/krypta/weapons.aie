@@ -1,0 +1,117 @@
+# weapons.aie — bronie Kryształowej Krypty (manifest: WEAPONS weapons.aie)
+# Klucze bloku WEAPON: docs/level-runtime.md, sekcja "Bronie".
+# Mapy mogą dopisać własne bloki WEAPON (na końcu pliku mapy).
+
+# Różdżka: magiczny pocisk ze światłem, bez amunicji.
+WEAPON rozdzka
+  TITLE Różdżka
+  TYPE projectile
+  SLOT 1
+  DAMAGE 25
+  RANGE 16
+  FIRE_RATE 2.5
+  AMMO none
+  PROJECTILE_SPEED 9
+  PROJECTILE_LIFETIME 2.5
+  PROJECTILE_RADIUS 0.08
+  PROJECTILE_SCALE 0.22
+  PROJECTILE_LIGHT 0.8
+  PROJECTILE_LIGHT_RADIUS 2.5
+  COLOR #7FE6FF
+  MUZZLE_LIGHT 0.7
+  VIEW player
+  SOUND_FIRE rozdzka_czar
+  SOUND_HIT rozdzka_trafienie
+
+# Kusza: bełt natychmiastowy (hitscan) ze smugą, jeden bełt w łożu.
+WEAPON kusza
+  TITLE Kusza
+  TYPE hitscan
+  SLOT 2
+  DAMAGE 50
+  RANGE 18
+  SPREAD 0.4
+  FIRE_RATE 1.4
+  MAGAZINE 1
+  RELOAD_TIME 0.8
+  AMMO belty
+  START_AMMO 6
+  MAX_AMMO 24
+  KNOCKBACK 1.5
+  TRACER yes
+  COLOR #FFD27A
+  MUZZLE_LIGHT 0.35
+  VIEW kusza
+  SOUND_FIRE kusza_strzal
+  SOUND_RELOAD kusza_naciag
+  SOUND_EMPTY pusto
+  SOUND_HIT kusza_trafienie
+
+# Ognista kula upiora: wolny pocisk z płomieniem, wybucha (splash).
+WEAPON ognista_kula
+  TITLE Ognista kula
+  TYPE projectile
+  DAMAGE 14
+  RANGE 14
+  FIRE_RATE 0.5
+  AMMO none
+  PROJECTILE_SPEED 4.5
+  PROJECTILE_LIFETIME 4
+  PROJECTILE_RADIUS 0.12
+  PROJECTILE_SCALE 0.34
+  PROJECTILE_LIGHT 1.1
+  PROJECTILE_LIGHT_RADIUS 3
+  COLOR #FF7A2A
+  SPLASH_RADIUS 1.1
+  SPLASH_FALLOFF 0.3
+  KNOCKBACK 2.5
+  SOUND_FIRE kula_rzut
+  SOUND_EXPLODE kula_wybuch
+
+SOUND rozdzka_czar
+  WAVEFORM sine
+  FREQUENCY 990
+  DECAY 0.18
+  VOLUME 0.35
+
+SOUND rozdzka_trafienie
+  WAVEFORM triangle
+  FREQUENCY 1480
+  DECAY 0.1
+  VOLUME 0.25
+
+SOUND kusza_strzal
+  TYPE noise
+  FREQUENCY 900
+  DECAY 0.09
+  VOLUME 0.45
+
+SOUND kusza_naciag
+  WAVEFORM sawtooth
+  FREQUENCY 160
+  DECAY 0.35
+  VOLUME 0.25
+
+SOUND kusza_trafienie
+  TYPE noise
+  FREQUENCY 300
+  DECAY 0.07
+  VOLUME 0.35
+
+SOUND pusto
+  WAVEFORM square
+  FREQUENCY 220
+  DECAY 0.05
+  VOLUME 0.2
+
+SOUND kula_rzut
+  TYPE noise
+  FREQUENCY 200
+  DECAY 0.4
+  VOLUME 0.35
+
+SOUND kula_wybuch
+  TYPE noise
+  FREQUENCY 90
+  DECAY 0.6
+  VOLUME 0.6

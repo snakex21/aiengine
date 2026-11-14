@@ -9,7 +9,9 @@ MANIFEST
   MAIN_MAP maps/przedsionek.aie
   MENU menu.aie
   CAMPAIGN yes
-  CARRY hp score items
+  CARRY hp score items ammo
+  WEAPONS weapons.aie
+  PLAYER_WEAPONS rozdzka
   LEVEL przedsionek maps/przedsionek.aie Przedsionek
   LEVEL krypta maps/krypta.aie Kryształowa Krypta
   LEVEL lodowe_groby maps/lodowe_groby.aie Lodowe Groby

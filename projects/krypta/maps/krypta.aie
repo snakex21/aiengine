@@ -118,6 +118,11 @@ PLACE item crystal k4 5.5 0 7.5 bob=0.15 glow=0.35 glow_radius=1.5
 PLACE item crystal k5 13.5 0 9.5 bob=0.15 glow=0.35 glow_radius=1.5
 PLACE item crystal k6 1.5 0 12.5 bob=0.15 glow=0.35 glow_radius=1.5
 
+# Kusza i belty (bron: weapons.aie; weapon=/ammo= daje je po podniesieniu)
+PLACE item kusza kusza 3.5 0 7.5 weapon=kusza scale=0.5 bob=0.08
+PLACE item belty b1 8.5 0 9.5 ammo=belty amount=6 scale=0.45
+PLACE item belty b2 14.5 0 12.5 ammo=belty amount=6 scale=0.45
+
 # Mikstury leczace
 PLACE item potion m1 14.5 0 12.5 scale=0.35
 PLACE item potion m2 3.5 0 1.5 scale=0.35

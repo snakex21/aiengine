@@ -17,6 +17,11 @@ type Shot struct {
 	X, Y, Z float64       // muzzle (absolute height)
 	Yaw     float64       // radians, 0 = +x
 	Pitch   float64       // radians, up positive
+
+	// Gun is where the weapon is drawn, offset from the aim origin (right,
+	// up, forward): tracers start there so a trail along the view line is
+	// seen as a streak instead of a dot.
+	GunRight, GunUp, GunFwd float64
 }
 
 // target is something a shot can hit: a vertical cylinder.
@@ -164,7 +169,10 @@ func (w *World) hitscan(s Shot, dx, dy, dz float64) {
 		px, py, pz = hit.X+hit.NX*0.02, hit.Y+hit.NY*0.02, hit.Z+hit.NZ*0.02
 	}
 	if d.Tracer {
-		w.tracer(d, s.X, s.Y, s.Z, px, py, pz)
+		c, sn := math.Cos(s.Yaw), math.Sin(s.Yaw)
+		gx := s.X + c*s.GunFwd - sn*s.GunRight
+		gy := s.Y + sn*s.GunFwd + c*s.GunRight
+		w.tracer(d, gx, gy, s.Z+s.GunUp, px, py, pz)
 	}
 	if !ok && !hit.Blocked() {
 		return // out of range in open air
@@ -196,7 +204,14 @@ func (w *World) explode(s Shot, x, y, z float64) {
 	r := d.Splash
 	w.push(Event{Kind: EventExplosion, Source: s.Shooter, Name: d.Name, Amount: r, X: x, Y: y, Z: z})
 	w.sound(d.SoundExplode, x, y, z)
-	w.addEffect(&Effect{X: x, Y: y, Z: z, Tex: "fx_boom", Frames: 4, Scale: r * 0.9, Grow: r * 0.6, TTL: 0.4,
+	// The fireball sprite is a billboard: draw it pulled back towards the
+	// shooter so a blast on a wall is not half hidden inside it.
+	fx, fy := x, y
+	if n := math.Hypot(x-s.X, y-s.Y); n > 1e-6 {
+		back := math.Min(r*0.45, n*0.5)
+		fx, fy = x-(x-s.X)/n*back, y-(y-s.Y)/n*back
+	}
+	w.addEffect(&Effect{X: fx, Y: fy, Z: z, Tex: "fx_boom", Frames: 4, Scale: r * 0.9, Grow: r * 0.6, TTL: 0.4,
 		Light: 1.4, LightRadius: r*2 + 1.5, Fade: true})
 	if pd := math.Hypot(w.Player.X-x, w.Player.Y-y); pd < r+3 {
 		w.Shake = math.Max(w.Shake, 0.25*(1-pd/(r+3)))
@@ -257,7 +272,7 @@ func (w *World) updatePlayerWeapon(dt float64, in Input) {
 		return
 	}
 	w.Shoot(Shot{Def: wp.Def, Shooter: PlayerID, Faction: actor.Friendly, X: p.X, Y: p.Y, Z: p.EyeZ() - 0.05,
-		Yaw: p.Angle, Pitch: math.Atan(in.AimSlope)}, n)
+		Yaw: p.Angle, Pitch: math.Atan(in.AimSlope), GunRight: 0.12, GunUp: -0.14, GunFwd: 0.3}, n)
 	if wp.Reloading {
 		w.sound(wp.Def.SoundReload, p.X, p.Y, p.EyeZ())
 	}

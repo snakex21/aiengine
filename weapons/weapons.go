@@ -308,7 +308,29 @@ func Flatten(node *parser.AIENode) map[string]string {
 		out[strings.ToUpper(k)] = strings.TrimSpace(v)
 	}
 	for _, c := range node.Children {
+		if strings.EqualFold(c.Type, "SOUND") {
+			continue // a SOUND block written after the WEAPON (see Sounds)
+		}
 		out[strings.ToUpper(c.Type)] = strings.TrimSpace(c.Name)
+	}
+	return out
+}
+
+// Sounds returns every SOUND block of a document, also those the .aie
+// parser attached to a preceding WEAPON (or MAP) block.
+func Sounds(doc *parser.AIEDocument) []*parser.AIENode {
+	var out []*parser.AIENode
+	var walk func(n *parser.AIENode)
+	walk = func(n *parser.AIENode) {
+		if n.IsSound() {
+			out = append(out, n)
+		}
+		for _, c := range n.Children {
+			walk(c)
+		}
+	}
+	for _, n := range doc.Nodes {
+		walk(n)
 	}
 	return out
 }

@@ -271,12 +271,78 @@ Bez `id` silnik nada własne (`item_crystal_1`).
 | `switch` | przełącznik (E) uruchamiający movery tagu | `tag`, `action`, `once`, `key`, `sprite`, `sprite_on`, `sound` |
 | `prop` | dekoracja z obrazkiem `assets/sprites/<typ>.png` | `sprite`, `scale` |
 
+## Bronie (`WEAPON`)
+
+Bronie opisują bloki `WEAPON` w pliku projektu (`WEAPONS weapons.aie` w
+manifeście) i w pliku mapy (mapa dopisuje i nadpisuje; bloki `WEAPON` i
+ich `SOUND` stawiaj **na końcu** pliku mapy - linia `WEAPON` kończy blok
+`MAP`). Gracz zaczyna z `PLAYER_WEAPONS` (właściwość mapy albo manifestu,
+np. `PLAYER_WEAPONS rozdzka kusza`). Projekt bez broni dostaje wbudowany
+pistolet (hitscan, 25 obrażeń).
+
+```
+WEAPON kusza
+  TITLE Kusza              # nazwa na HUD
+  TYPE hitscan             # hitscan (promień) albo projectile (pocisk)
+  SLOT 2                   # klawisz wyboru 1-9
+  DAMAGE 50
+  RANGE 18                 # zasięg (pola)
+  SPREAD 0.4               # rozrzut: połowa kąta stożka w stopniach
+  PELLETS 1                # promieni/pocisków na strzał (śrut)
+  FIRE_RATE 1.4            # strzałów na sekundę;  AUTO_FIRE yes = ogień ciągły
+  MAGAZINE 1               # magazynek (0 = strzela prosto z zapasu)
+  RELOAD_TIME 0.8
+  AMMO belty               # typ amunicji (none = bez amunicji)
+  START_AMMO 6             # zapas razem z bronią;  MAX_AMMO 24 = limit zapasu
+  KNOCKBACK 1.5            # odrzut trafionego
+  TRACER yes               # smuga za promieniem;  COLOR #FFD27A = kolor smugi/pocisku/światła
+  MUZZLE_LIGHT 0.35        # błysk przy strzale
+  VIEW kusza               # widok z ręki: assets/sprites/player/kusza.png (+ kusza_fire.png); player = klatki ręki projektu
+  SOUND_FIRE kusza_strzal  # też SOUND_HIT, SOUND_RELOAD, SOUND_EMPTY, SOUND_EXPLODE
+WEAPON ognista_kula
+  TYPE projectile
+  PROJECTILE_SPEED 4.5     # pola/s;  PROJECTILE_GRAVITY = opad (pola/s²)
+  PROJECTILE_LIFETIME 4    # s;  PROJECTILE_RADIUS = promień kolizji
+  PROJECTILE_SPRITE orb    # orb = generowana świecąca kula w COLOR, inaczej assets/sprites/<nazwa>.png
+  PROJECTILE_SCALE 0.34
+  PROJECTILE_LIGHT 1.1     # światło niesione przez pocisk;  PROJECTILE_LIGHT_RADIUS 3
+  SPLASH_RADIUS 1.1        # wybuch: pełne obrażenia w środku ...
+  SPLASH_FALLOFF 0.3       # ... spadające liniowo do 30% na krawędzi
+```
+
+Hitscan i pociski używają tego samego zapytania o geometrię co wzrok
+wrogów (`world.Trace`): zatrzymują je ściany, stopnie, podłogi i sufity na
+mapach GRID i sektorowych. Wybuch rani wszystkich (także strzelca) w
+promieniu, ale tylko w linii wzroku od punktu wybuchu (ściana i filar
+osłaniają). Szybkostrzelność, magazynek i przeładowanie liczą się w czasie
+gry - pauza, menu i konsola je zatrzymują.
+
+Sterowanie: LPM strzał (przytrzymanie dla `AUTO_FIRE`), `R` przeładowanie,
+`1`-`9` wybór slotu, kółko myszy / `Tab` / `Q` następna / poprzednia broń.
+HUD pokazuje nazwę broni, naboje w magazynku / zapas i pasek magazynka.
+
+Przedmioty: `PLACE item kusza k 3.5 0 7.5 weapon=kusza` daje broń (i ją
+wybiera), `PLACE item belty b1 8.5 0 9.5 ammo=belty amount=6` - amunicję.
+Wrogowie strzelający: `PLACE enemy ... weapon=ognista_kula keep=3` -
+trzymają dystans `keep` (domyślnie pół zasięgu broni), po `windup` sekund
+zamachu strzelają w gracza, z bliska walczą wręcz (`damage`). Broń może
+nosić każdy aktor (`game.Shot` nie zależy od tego, kto strzela).
+
+Skrypty: `giveWeapon(nazwa)`, `giveAmmo(typ, n)`, `hasWeapon(nazwa)`,
+`selectWeapon(nazwa)`, `getPlayerAmmo(broń|typ)`, `setPlayerAmmo(broń|typ, n)`,
+`removeWeapon(nazwa)`; konsola: `give <broń>`, `give ammo <typ> [n]`,
+`weapon <nazwa>`, `fire`, `reload`. `CARRY ... ammo` w kampanii przenosi
+bronie i zapasy amunicji. Przykład: `projects/krypta/weapons.aie`, mapa
+testowa `maps/testy/bronie.aie`.
+
 ## Zdarzenia i API skryptów
 
 Zdarzenia (Lua `registerEvent`, JS `Engine.on`): `onStart`,
 `onUpdate(dt)`, `onItemPickup(id, typ)`, `onZoneEnter(id, typ)`,
 `onZoneExit(id, typ)`, `onPlayerDamage(ile)`, `onPlayerDead`,
-`onEnemyDead(id)`, `onWin`, `onLose`, `onDoorOpen(id)`.
+`onEnemyDead(id, typ)`, `onEnemyDamage(id, typ, obrażenia)`, `onWeaponPickup(broń)`,
+`onWin`, `onLose`, `onDoorOpen(id)`. Obrażenia i śmierci wrogów trafiają do
+skryptów na końcu klatki (kolejka zdarzeń silnika, pakiet `game`).
 
 Nowe/naprawione funkcje: `setHUDText(klucz, tekst)` (linie HUD sortowane po
 kluczu), `showMessage(tekst, sekundy)` (domyślnie 4 s, 0 = na stałe),
@@ -304,3 +370,6 @@ sam w sobie kończy po N klatkach, `--exec` wykonuje komendy konsoli po
 starcie (`tp x y [kąt]`, `god`, `fps`, `lua <kod>`, `restart`,
 `map <plik.aie>` - dowolna mapa projektu...).
 Przy wyjściu silnik loguje średnie FPS i zużycie pamięci (`[Perf]`).
+`--agent` (albo `AIENGINE_AGENT=1`, albo `AGENT_BRIDGE yes` w config.aie)
+uruchamia most human-in-the-loop (HTTP na 127.0.0.1:9876); bez tego serwer
+nie startuje.

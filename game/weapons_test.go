@@ -232,7 +232,7 @@ func TestSplashFalloffAndLineOfSight(t *testing.T) {
 	d := w.Script.Weapons["rocket"]
 	shot := Shot{Def: d, Shooter: PlayerID, Faction: actor.Friendly}
 	centre := dummy(w, "centre", 4.5, 2.5, 1000)
-	mid := dummy(w, "mid", 4.5, 3.6, 1000)   // body edge 0.8 from the blast
+	mid := dummy(w, "mid", 4.5, 3.6, 1000)       // body edge 0.8 from the blast
 	shield := dummy(w, "behind", 6.5, 1.5, 1000) // behind the pillar
 	far := dummy(w, "far", 8.5, 2.5, 1000)
 	w.Player.X = 1.5

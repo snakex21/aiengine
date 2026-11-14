@@ -53,8 +53,8 @@ func (app *App) loadWeaponDefs(lv *level.Level) map[string]*weapons.Def {
 				for k, d := range list {
 					defs[k] = d
 				}
-				for _, n := range doc.Nodes {
-					if n.IsSound() {
+				for _, n := range weapons.Sounds(doc) {
+					{
 						app.audioSys.RegisterSoundDef(systems.SoundDefFromProps(n.Name, soundProps(n.Properties, n.Children)))
 					}
 				}

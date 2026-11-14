@@ -157,10 +157,10 @@ func (w *World) updateEffects(dt float64) {
 func (w *World) tracer(d *weapons.Def, x0, y0, z0, x1, y1, z1 float64) {
 	dx, dy, dz := x1-x0, y1-y0, z1-z0
 	n := math.Hypot(math.Hypot(dx, dy), dz)
-	const gap = 0.3
-	for s := 0.45; s < n; s += gap {
+	const gap = 0.25
+	for s := 0.6; s < n; s += gap { // starts ahead of the muzzle: near dots would fill the view
 		k := s / n
-		w.addEffect(&Effect{X: x0 + dx*k, Y: y0 + dy*k, Z: z0 + dz*k, Tex: TracerTexture(d), Scale: 0.07,
+		w.addEffect(&Effect{X: x0 + dx*k, Y: y0 + dy*k, Z: z0 + dz*k, Tex: TracerTexture(d), Scale: 0.035,
 			TTL: 0.09 + 0.05*k, Fade: true})
 	}
 	if n > 0.5 {

@@ -50,7 +50,9 @@ widać ekran ładowania następnego poziomu.
 |---|---|
 | `W` `A` `S` `D` | ruch |
 | mysz | rozglądanie się (także góra/dół) |
-| lewy przycisk myszy | strzał różdżką (25 obrażeń, strażnik ma 50 HP) |
+| lewy przycisk myszy | strzał: różdżka (świetlisty pocisk, 25 obrażeń, bez amunicji) albo kusza (bełt 50 obrażeń, amunicja) |
+| `1` / `2`, kółko myszy, `Tab` / `Q` | wybór broni |
+| `R` | przeładowanie kuszy |
 | `E` | otwieranie drzwi (z kluczem) i sprawdzanie ścian (sekrety) |
 | `Spacja` / `C` | skok / kucanie |
 | `Enter` | zagraj ponownie (na ekranie końca gry) |
@@ -89,10 +91,15 @@ się pauzuje, zwalnia kursor i wycisza dźwięk.
   **relikwie** (+250 punktów, przechodzą między poziomami).
 - **Mikstury** (czerwone flaszki) – +35 HP.
 - **Kwas** (zielone kałuże) – 20 HP/s, dopóki w nim stoisz.
-- **Przeciwnicy** – strzał różdżką zadaje 25 obrażeń:
+- **Bronie** – różdżka (świetlisty pocisk, 25 obrażeń, bez limitu) i kusza
+  z Kryształowej Krypty (bełt 50 obrażeń ze smugą; bełty leżą na poziomach
+  i przechodzą między nimi razem z kuszą).
+- **Przeciwnicy**:
   - **strażnicy** (fioletowe zjawy, 50–70 HP) gonią cię, gdy cię zobaczą;
     niektórzy pilnują posterunku, inni czekają w zasadzce;
   - **pająki** (20 HP) są szybkie i krążą po okolicy;
+  - **upiór** (60 HP, Zalana Kopalnia) trzyma dystans i rzuca wybuchające
+    ognistymi kulami;
   - wszyscy omijają ściany i narożniki (wyszukiwanie ścieżki A*).
 - **Strażnik Krypty** (boss, 300 HP) co 9 s przywołuje pająka. Kryj się za
   filarami.
@@ -129,7 +136,7 @@ Gra używa wyłącznie formatów silnika – nie ma w niej kodu Go poza testami:
 | `maps/*.aie` | 5 poziomów: `GRID`, `PLACE` (kryształy, klucze z `give=`, drzwi z `key=`/`secret=yes`, strefy kwasu, typy wrogów `enemy_type`, wrogowie z `behavior=`, portal), `TEXTURES` (motyw), `INTRO`/`OUTRO`, `VAR_*`, `SOUND`, `TRIGGER` |
 | `scripts/krypta.lua` | logika wspólna dla wszystkich poziomów: kryształy, czas, kwas, mikstury, klucze, sekrety, relikwie, punkty, przywoływanie pająków przez bossa, `exitLevel()` |
 | `assets/textures/` | zestawy tekstur 64×64 (ściany, podłoga, sufit): domyślny (krypta), `lod/`, `kopalnia/`, `serce/` |
-| `assets/sprites/` | kryształ, mikstura, kwas, portal, klucze, relikwia, atlasy `pajak.png` i `straznik_krypty.png`; `player/` – klatki ręki z różdżką |
+| `assets/sprites/` | kryształ, mikstura, kwas, portal, klucze, relikwia, atlasy `pajak.png`, `straznik_krypty.png` i `upior.png`, kusza i bełty (`kusza.png`, `belty.png`); `player/` – klatki ręki z różdżką i widok kuszy |
 | `straznik.png` | atlas 3×2 strażnika (stoi, chód, atak) |
 | `*_test.go` | testy bez okna (opis niżej) |
 
@@ -171,6 +178,5 @@ Silnik potrafi sam zrobić zrzut i zamknąć się (przydatne w CI / do dokumenta
 ## Znane ograniczenia (wynikają z silnika)
 
 - Brak oświetlenia punktowego i dźwięku przestrzennego; muzyka to proste proceduralne pętle.
-- Przeciwnicy atakują tylko wręcz (brak pocisków).
 - Czcionka ma tylko wielkie litery (także polskie).
 - Pad steruje menu i pauzą, ale nie ruchem gracza.

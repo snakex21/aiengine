@@ -24,7 +24,7 @@ SCREEN main
 
 SCREEN instrukcja
   TITLE "Jak grać"
-  SUBTITLE "WASD - ruch, mysz - rozglądanie, LPM - różdżka, E - drzwi i sekrety, Esc - pauza"
+  SUBTITLE "WASD - ruch, mysz - rozglądanie, LPM - strzał, 1/2 lub kółko - broń, E - drzwi i sekrety, Esc - pauza"
   BACKGROUND dim
   HINT "Kryształy otwierają bramę, klucze - drzwi; relikwie z sekretów dają punkty"
   ITEM "Wróć" back

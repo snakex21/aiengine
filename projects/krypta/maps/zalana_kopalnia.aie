@@ -119,6 +119,8 @@ PLACE light pulse portal_blask 18.5 0 12.5 radius=3 level=0.9 speed=0.8 min=0.4
 # Typy przeciwników (wartości domyślne dla PLACE enemy i spawnEnemy)
 PLACE enemy_type straznik 0 0 0 hp=50 speed=0.9 damage=10 sight=5 behavior=chase
 PLACE enemy_type pajak 0 0 0 hp=20 speed=2.2 damage=6 sight=6 behavior=wander atlas=assets/sprites/pajak.png scale=0.55 z=0.22 range=0.7 attack_rate=0.7
+# Upiór: walczy na dystans ognistymi kulami (weapon= z weapons.aie), trzyma się 3 pola od gracza.
+PLACE enemy_type upior 0 0 0 hp=60 speed=0.8 damage=6 sight=9 behavior=guard weapon=ognista_kula keep=3 windup=0.45 atlas=assets/sprites/upior.png scale=0.8 z=-0.05
 
 PLACE item crystal k1 5.5 0 1.5 bob=0.15 glow=0.35 glow_radius=1.5
 PLACE item crystal k2 12.5 0 3.5 bob=0.15 glow=0.35 glow_radius=1.5
@@ -146,6 +148,8 @@ PLACE enemy pajak p3 4.5 0 7.5
 PLACE enemy straznik s1 18.5 0 3.5 behavior=ambush hp=70
 PLACE enemy straznik s2 4.5 0 12.5 behavior=ambush hp=70
 PLACE enemy straznik s3 16.5 0 8.5 behavior=guard
+PLACE enemy upior u1 12.5 0 1.5
+PLACE item belty b1 9.5 0 3.5 ammo=belty amount=6 scale=0.45
 PLACE zone exit portal 18.5 0 12.5 radius=0.6 sprite=portal scale=0.9
 
 SOUND ding

@@ -96,6 +96,10 @@ registerEvent("onItemPickup", function(id, kind)
     elseif KEY_NAMES[kind] then
         playSound("klucz")
         showMessage("Masz " .. KEY_NAMES[kind] .. "!", 3)
+    elseif kind == "kusza" then
+        showMessage("Masz kuszę! Klawisz 2 lub kółko myszy", 3)
+    elseif kind == "belty" then
+        showMessage("Bełty do kuszy", 2)
     elseif kind == "relikwia" then
         addScore(250)
         playSound("sekret")

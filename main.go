@@ -979,6 +979,18 @@ func (app *App) updatePlayerAnimation(dt float64, moving bool) {
 	if len(app.playerAnim.IdleFrames) == 0 {
 		return
 	}
+	if view := app.weaponView(app.playerAnim.ShootTimer > 0); view != "" {
+		// A weapon with its own first-person sprite (VIEW).
+		app.playerAnim.ShootTimer = math.Max(0, app.playerAnim.ShootTimer-dt)
+		app.playerAnim.ReloadTimer = 0
+		if moving {
+			app.playerAnim.Bob += dt * 12
+		} else {
+			app.playerAnim.Bob = 0
+		}
+		app.raycaster.HUDWeaponTex, app.raycaster.HUDWeaponBob = view, app.playerAnim.Bob
+		return
+	}
 	if app.playerAnim.ReloadTimer > 0 {
 		app.playerAnim.ReloadTimer -= dt
 		frames := app.playerAnim.ReloadFrames
@@ -991,18 +1003,6 @@ func (app *App) updatePlayerAnimation(dt float64, moving bool) {
 		}
 		app.raycaster.HUDWeaponTex = frames[idx]
 		app.raycaster.HUDWeaponBob = 0
-		return
-	}
-	if view := app.weaponView(app.playerAnim.ShootTimer > 0); view != "" {
-		// A weapon with its own first-person sprite (VIEW).
-		app.playerAnim.ShootTimer = math.Max(0, app.playerAnim.ShootTimer-dt)
-		app.playerAnim.ReloadTimer = 0
-		if moving {
-			app.playerAnim.Bob += dt * 12
-		} else {
-			app.playerAnim.Bob = 0
-		}
-		app.raycaster.HUDWeaponTex, app.raycaster.HUDWeaponBob = view, app.playerAnim.Bob
 		return
 	}
 	if app.playerAnim.ShootTimer > 0 {
