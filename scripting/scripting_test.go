@@ -45,8 +45,8 @@ func TestEngineEnemySpawn(t *testing.T) {
 		t.Errorf("expected enemy HP=100, got %f", hp)
 	}
 	e.KillEnemy(id)
-	if hp := e.GetEnemyHP(id); hp != 100 { // HP stays at last value, Alive=false
-		// KillEnemy doesn't set HP to 0 — it sets Alive=false
+	if hp := e.GetEnemyHP(id); hp != 0 {
+		t.Errorf("killed enemy HP = %v, want 0", hp)
 	}
 	if e.AllEnemiesDeadInZone("") != true {
 		t.Error("expected all enemies dead after kill")

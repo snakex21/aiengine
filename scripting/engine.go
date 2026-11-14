@@ -5,11 +5,11 @@
 package scripting
 
 import (
-	"fmt"
 	"log"
 	"sort"
 	"sync"
 
+	"aiengine/actor"
 	"aiengine/renderer"
 )
 
@@ -34,8 +34,10 @@ type Engine struct {
 	HUDAmmo    int
 	HUDAmmoMax int
 
-	// Entities (simple registry for now; will be replaced by gameplay/entities later).
-	Entities map[string]*EntityState
+	// Actors is the level's actor registry (enemies). The game simulation
+	// shares the same set, so script changes (killEnemy, setEnemyHP,
+	// moveEnemy) act on the real enemies.
+	Actors *actor.Set
 
 	// Map.
 	MapName string
@@ -92,7 +94,11 @@ type Engine struct {
 	// setCellLight; the level runtime applies them to the map's lights.
 	OnLight     func(id string, level float64, effect string) bool
 	OnCellLight func(x, y int, level float64) bool
-	OnSpawn     func(id, typ string, x, y float64) // spawnEnemy: host creates the visible enemy
+	OnSpawn     func(id, typ string, x, y float64) // spawnEnemy: host creates the enemy actor
+	// OnDamage, when set, applies script damage to an actor through the
+	// host's damage path (killEnemy, setEnemyHP below the current HP);
+	// without a host the engine changes the actor and emits the events.
+	OnDamage func(id string, amount float64)
 
 	// Animated sectors (level movers): activate(tag), moveFloor/moveCeil,
 	// stopMover, getFloor/getCeil.
@@ -110,17 +116,6 @@ type Engine struct {
 
 // quietEvents are emitted every frame; logging them would flood the log.
 var quietEvents = map[string]bool{"onUpdate": true}
-
-// EntityState holds minimal entity data for scripting.
-type EntityState struct {
-	ID      string
-	Type    string
-	HP      float64
-	MaxHP   float64
-	X, Y, Z float64
-	Frozen  bool
-	Alive   bool
-}
 
 // TriggerState holds trigger condition and action data.
 type TriggerState struct {
@@ -146,7 +141,7 @@ func NewEngine() *Engine {
 		PlayerSpeed:   1.0,
 		PlayerAmmo:    make(map[string]int),
 		PlayerWeapons: []string{"pistol"},
-		Entities:      make(map[string]*EntityState),
+		Actors:        actor.NewSet(),
 		Triggers:      make(map[string]*TriggerState),
 		Vars:          make(map[string]interface{}),
 		Timers:        make(map[string]*TimerState),
@@ -304,136 +299,104 @@ func (e *Engine) SetPlayerSpeed(speed float64) {
 
 // --- Entity (Enemy) API ---
 
-// SpawnEnemy creates a new enemy entity.
+// SpawnEnemy creates an enemy of a type at (x, y) and returns its id. The
+// host (OnSpawn) builds the actor from the level's enemy template; without
+// a host a bare actor with 100 HP is registered.
 func (e *Engine) SpawnEnemy(entityType string, x, y, z float64) string {
-	e.mu.Lock()
-	e.spawnSeq++
-	id := fmt.Sprintf("%s_%d", entityType, e.spawnSeq)
-	for e.Entities[id] != nil { // never clobber an existing entity
-		e.spawnSeq++
-		id = fmt.Sprintf("%s_%d", entityType, e.spawnSeq)
-	}
-	e.mu.Unlock()
-	e.mu.Lock()
-	e.Entities[id] = &EntityState{
-		ID:    id,
-		Type:  entityType,
-		HP:    100,
-		MaxHP: 100,
-		X:     x, Y: y, Z: z,
-		Alive: true,
-	}
-	e.mu.Unlock()
+	id := e.Actors.NewID(entityType)
 	if e.OnSpawn != nil {
 		e.OnSpawn(id, entityType, x, y)
+	}
+	if e.Actors.Get(id) == nil {
+		e.Actors.Add(&actor.Actor{ID: id, Type: entityType, Faction: actor.Hostile, X: x, Y: y,
+			HP: 100, MaxHP: 100, Alive: true})
 	}
 	e.Emit("onEnemySpawn", id, entityType, x, y, z)
 	return id
 }
 
-// KillEnemy marks an enemy as dead and emits event.
-func (e *Engine) KillEnemy(id string) {
-	e.mu.Lock()
-	ent, ok := e.Entities[id]
-	if !ok {
-		e.mu.Unlock()
+// damage applies script damage to an actor: through the host when it set
+// OnDamage, otherwise directly with onEnemyDamage(id, type, dmg) and
+// onEnemyDead(id, type).
+func (e *Engine) damage(id string, amount float64) {
+	if e.OnDamage != nil {
+		e.OnDamage(id, amount)
 		return
 	}
-	ent.Alive = false
-	entType := ent.Type
-	e.mu.Unlock()
-	e.Emit("onEnemyDead", id, entType)
+	a := e.Actors.Get(id)
+	if a == nil {
+		return
+	}
+	dealt, died := a.TakeDamage(amount)
+	if dealt > 0 {
+		e.Emit("onEnemyDamage", id, a.Type, dealt)
+	}
+	if died {
+		e.Emit("onEnemyDead", id, a.Type)
+	}
 }
 
-// GetEnemyHP returns the HP of an enemy.
+// KillEnemy kills a living enemy (onEnemyDead(id, type) follows).
+func (e *Engine) KillEnemy(id string) {
+	if a := e.Actors.Get(id); a != nil && a.Alive {
+		e.damage(id, a.HP)
+	}
+}
+
+// GetEnemyHP returns the HP of an enemy (0 for unknown ids).
 func (e *Engine) GetEnemyHP(id string) float64 {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	if ent, ok := e.Entities[id]; ok {
-		return ent.HP
+	if a := e.Actors.Get(id); a != nil {
+		return a.HP
 	}
 	return 0
 }
 
-// SetEnemyHP sets enemy HP and emits damage/death events.
+// SetEnemyHP sets an enemy's HP: lowering it is damage (events, death at
+// 0), raising it heals up to MaxHP.
 func (e *Engine) SetEnemyHP(id string, hp float64) {
-	e.mu.Lock()
-	ent, ok := e.Entities[id]
-	if !ok {
-		e.mu.Unlock()
+	a := e.Actors.Get(id)
+	if a == nil || !a.Alive {
 		return
 	}
-	oldHP := ent.HP
-	ent.HP = hp
-	if ent.HP <= 0 {
-		ent.HP = 0
-		ent.Alive = false
+	if hp < a.HP {
+		e.damage(id, a.HP-hp)
+		return
 	}
-	entType := ent.Type
-	e.mu.Unlock()
-
-	if hp < oldHP {
-		e.Emit("onEnemyDamage", id, entType, oldHP-hp)
-	}
-	if ent.HP <= 0 {
-		e.Emit("onEnemyDead", id, entType)
-	}
+	a.HP = min(hp, a.MaxHP)
 }
 
-// AllEnemiesDeadInZone checks if all enemies in a zone are dead (stub).
+// AllEnemiesDeadInZone reports whether no hostile actor is alive (zones
+// are not tracked yet).
 func (e *Engine) AllEnemiesDeadInZone(zone string) bool {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	// Stub: check all entities; zone filtering will be added later.
-	for _, ent := range e.Entities {
-		if ent.Alive {
-			// TODO: zone check.
-			return false
-		}
-	}
-	return true
+	return e.Actors.CountAlive(actor.Hostile) == 0
 }
 
-// GetEnemyCountInZone returns enemy count in a zone (stub).
+// GetEnemyCountInZone returns the number of living hostile actors (zones
+// are not tracked yet).
 func (e *Engine) GetEnemyCountInZone(zone string) int {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	count := 0
-	for _, ent := range e.Entities {
-		if ent.Alive {
-			count++
-		}
-	}
-	return count
+	return e.Actors.CountAlive(actor.Hostile)
 }
 
-// MoveEnemy moves an enemy to a new position.
+// MoveEnemy moves an enemy to a new position (z is ignored: enemies stand
+// on the floor).
 func (e *Engine) MoveEnemy(id string, x, y, z float64) {
-	e.mu.Lock()
-	if ent, ok := e.Entities[id]; ok {
-		ent.X = x
-		ent.Y = y
-		ent.Z = z
+	if a := e.Actors.Get(id); a != nil {
+		a.X, a.Y = x, y
 	}
-	e.mu.Unlock()
 }
 
 // FreezeEnemy disables enemy AI.
 func (e *Engine) FreezeEnemy(id string) {
-	e.mu.Lock()
-	if ent, ok := e.Entities[id]; ok {
-		ent.Frozen = true
+	if a := e.Actors.Get(id); a != nil {
+		a.Frozen = true
 	}
-	e.mu.Unlock()
 }
 
 // UnfreezeEnemy enables enemy AI.
 func (e *Engine) UnfreezeEnemy(id string) {
-	e.mu.Lock()
-	if ent, ok := e.Entities[id]; ok {
-		ent.Frozen = false
+	if a := e.Actors.Get(id); a != nil {
+		a.Frozen = false
 	}
-	e.mu.Unlock()
 }
 
 // --- Map API ---

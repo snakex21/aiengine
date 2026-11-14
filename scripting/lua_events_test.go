@@ -31,3 +31,46 @@ func TestLuaRegisterEventReceivesArgs(t *testing.T) {
 		t.Fatalf("calls = %s, want 11", calls)
 	}
 }
+
+// killEnemy/setEnemyHP act on the shared actor registry: the actor really
+// dies (nothing copies old HP back) and onEnemyDead gets id and type.
+func TestLuaKillEnemyActsOnActorRegistry(t *testing.T) {
+	e := NewEngine()
+	lb := NewLuaBridge(e)
+	defer lb.Close()
+	routed := 0
+	err := lb.DoString(`
+		dead = ""
+		registerEvent("onEnemyDead", function(id, typ) dead = dead .. id .. "/" .. typ .. ";" end)
+		a = spawnEnemy("pajak", 2, 3, 0)
+		b = spawnEnemy("straznik", 4, 3, 0)
+		killEnemy(a)
+		setEnemyHP(b, 40)
+		hpB = getEnemyHP(b)
+		setEnemyHP(b, 0)
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := lb.L.GetGlobal("dead").String(); got != "pajak_1/pajak;straznik_2/straznik;" {
+		t.Fatalf("onEnemyDead calls %q", got)
+	}
+	if hp := lb.L.GetGlobal("hpB").String(); hp != "40" {
+		t.Fatalf("hp after setEnemyHP = %s", hp)
+	}
+	for _, a := range e.Actors.All() {
+		if a.Alive || a.HP != 0 {
+			t.Fatalf("%s still alive (%v HP)", a.ID, a.HP)
+		}
+	}
+	if !e.AllEnemiesDeadInZone("") {
+		t.Fatal("enemies alive")
+	}
+	// With a host, script damage goes through its damage path.
+	e.OnDamage = func(id string, amount float64) { routed++ }
+	id := e.SpawnEnemy("grunt", 1, 1, 0)
+	e.KillEnemy(id)
+	if routed != 1 {
+		t.Fatal("killEnemy did not use the host damage path")
+	}
+}

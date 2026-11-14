@@ -93,6 +93,7 @@ func (app *App) startLevel(lv *level.Level) error {
 	app.scriptEngine = scripting.NewEngine()
 	app.scriptEngine.Effects = app.effects
 	app.scriptEngine.AudioPlayer = app.audioSys
+	app.scriptEngine.OnDamage = app.damageEnemyByID
 	if hp, err := strconv.ParseFloat(lv.Props["PLAYER_HP"], 64); err == nil && hp > 0 {
 		app.scriptEngine.PlayerHP, app.scriptEngine.PlayerMaxHP = hp, hp
 	}
@@ -232,13 +233,13 @@ func (app *App) spawnLevelEnemy(p level.Placement) {
 	sprite := &renderer.Sprite{X: p.X, Y: p.Y, Scale: scale, Alpha: 1, Active: true, EntityID: p.ID}
 	sprite.Z = p.Float("z", 0)
 	enemy := &DemoEnemy{
-		ID: p.ID, Sprite: sprite, HP: hp, MaxHP: hp,
+		Actor: app.newEnemyActor(p.ID, p.Type, p.X, p.Y, hp), Sprite: sprite,
 		Speed:       p.Float("speed", 1.15),
 		Damage:      p.Float("damage", 8),
 		AttackRange: p.Float("range", 0.85),
 		AttackRate:  p.Float("attack_rate", 1.0),
 		SightRange:  p.Float("sight", 6.5),
-		State:       "idle", Alive: true,
+		State:       "idle",
 		FramePrefix: prefix,
 		Fighter:     level.NewFighter(p, int64(len(app.enemies)+1)),
 		HitSound:    p.Params["attack_sound"],
@@ -257,7 +258,6 @@ func (app *App) spawnLevelEnemy(p level.Placement) {
 	sprite.TexName, sprite.Rotations = enemy.Anim.Textures()
 	app.enemies = append(app.enemies, enemy)
 	app.sprites = append(app.sprites, sprite)
-	app.scriptEngine.Entities[p.ID] = &scripting.EntityState{ID: p.ID, Type: p.Type, HP: hp, MaxHP: hp, X: p.X, Y: p.Y, Alive: true}
 }
 
 // updateLevelEnemy moves one level enemy and resolves its melee attacks

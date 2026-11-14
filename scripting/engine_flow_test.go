@@ -157,8 +157,8 @@ func TestSpawnEnemyIDsAreUnique(t *testing.T) {
 	e := NewEngine()
 	a := e.SpawnEnemy("grunt", 1, 1, 0)
 	b := e.SpawnEnemy("grunt", 2, 2, 0)
-	if a == b || len(e.Entities) != 2 {
-		t.Fatalf("ids %q %q, entities %d", a, b, len(e.Entities))
+	if a == b || e.Actors.Len() != 2 {
+		t.Fatalf("ids %q %q, actors %d", a, b, e.Actors.Len())
 	}
 }
 

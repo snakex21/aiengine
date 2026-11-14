@@ -21,6 +21,7 @@ import (
 	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
 
+	"aiengine/actor"
 	"aiengine/anim"
 	"aiengine/input"
 	"aiengine/level"
@@ -170,11 +171,11 @@ func parseRunOptions(args []string) (runOptions, error) {
 	return o, nil
 }
 
+// DemoEnemy is the host's view and brain of an enemy actor (the actor in
+// the scripting engine's registry holds id, HP and life).
 type DemoEnemy struct {
-	ID          string
+	*actor.Actor
 	Sprite      *renderer.Sprite
-	HP          float64
-	MaxHP       float64
 	Speed       float64
 	Damage      float64
 	AttackRange float64
@@ -182,7 +183,6 @@ type DemoEnemy struct {
 	AttackTimer float64
 	AnimTimer   float64
 	State       string
-	Alive       bool
 
 	// Level runtime only: movement/melee logic and per-type sprite frames.
 	Fighter     *level.Fighter
@@ -192,8 +192,9 @@ type DemoEnemy struct {
 	Height      float64 // headroom the body needs (closing doors, crushers)
 
 	// Sprite animation (enemy_anim.go); nil = the legacy frame cycle.
-	Anim  *anim.Player
-	painT float64
+	Anim       *anim.Player
+	painT      float64
+	deathShown bool
 }
 
 type DemoPlayerAnim struct {
@@ -645,16 +646,14 @@ func (app *App) initDemoContent() {
 		{X: 4.5, Y: 3.5, Z: 0, Scale: 0.7, TexName: "sprite_prop", Alpha: 1.0, Active: true, EntityID: "prop1"},
 		{X: 5.5, Y: 3.5, Z: 0, Scale: 0.7, TexName: "sprite_prop", Alpha: 1.0, Active: true, EntityID: "prop2"},
 	}
-	app.spawnDemoEnemies()
 	app.effects = renderer.DefaultEffects()
 
 	// --- Scripting Engine ---
 	app.scriptEngine = scripting.NewEngine()
 	app.scriptEngine.Effects = app.effects
 	app.scriptEngine.AudioPlayer = app.audioSys // wire audio to scripts
-	for _, enemy := range app.enemies {
-		app.scriptEngine.Entities[enemy.ID] = &scripting.EntityState{ID: enemy.ID, Type: "grunt", HP: enemy.HP, MaxHP: enemy.MaxHP, X: enemy.Sprite.X, Y: enemy.Sprite.Y, Z: enemy.Sprite.Z, Alive: true}
-	}
+	app.scriptEngine.OnDamage = app.damageEnemyByID
+	app.spawnDemoEnemies()
 
 	// Lua bridge.
 	app.luaBridge = scripting.NewLuaBridge(app.scriptEngine)
@@ -771,15 +770,12 @@ func (app *App) spawnDemoEnemies() {
 	for _, spawn := range spawns {
 		sprite := &renderer.Sprite{X: spawn.x, Y: spawn.y, Z: 0, Scale: 0.85, TexName: app.enemyFrame(0), Alpha: 1.0, Active: true, EntityID: spawn.id}
 		enemy := &DemoEnemy{
-			ID:          spawn.id,
+			Actor:       app.newEnemyActor(spawn.id, "grunt", spawn.x, spawn.y, 50),
 			Sprite:      sprite,
-			HP:          50,
-			MaxHP:       50,
 			Speed:       1.15,
 			Damage:      8,
 			AttackRange: 0.85,
 			State:       "idle",
-			Alive:       true,
 		}
 		app.enemies = append(app.enemies, enemy)
 		app.sprites = append(app.sprites, sprite)
@@ -1102,13 +1098,19 @@ func (app *App) updatePlayerAnimation(dt float64, moving bool) {
 
 func (app *App) updateDemoEnemies(dt float64) {
 	for _, enemy := range app.enemies {
-		if !enemy.Alive && enemy.Anim != nil && enemy.Sprite != nil && enemy.Sprite.Active {
-			app.animateEnemy(enemy, dt, 0, 0) // death animation, then the corpse
+		if !enemy.Alive && enemy.Sprite != nil && enemy.Sprite.Active {
+			if !enemy.deathShown {
+				app.showEnemyDeath(enemy) // killed by a script or a console command
+			}
+			if enemy.Anim != nil {
+				app.animateEnemy(enemy, dt, 0, 0) // death animation, then the corpse
+			}
 			continue
 		}
 		if !enemy.Alive || enemy.Sprite == nil || !enemy.Sprite.Active {
 			continue
 		}
+		enemy.Sprite.X, enemy.Sprite.Y = enemy.X, enemy.Y // scripts may have moved it (moveEnemy)
 		prevX, prevY := enemy.Sprite.X, enemy.Sprite.Y
 		if enemy.Sprite.Alpha < 1.0 {
 			enemy.Sprite.Alpha += float32(dt * 2.5)
@@ -1148,14 +1150,7 @@ func (app *App) updateDemoEnemies(dt float64) {
 		}
 
 		app.animateEnemy(enemy, dt, enemy.Sprite.X-prevX, enemy.Sprite.Y-prevY)
-		if app.scriptEngine != nil {
-			if state := app.scriptEngine.Entities[enemy.ID]; state != nil {
-				state.HP = enemy.HP
-				state.X = enemy.Sprite.X
-				state.Y = enemy.Sprite.Y
-				state.Alive = enemy.Alive
-			}
-		}
+		enemy.X, enemy.Y = enemy.Sprite.X, enemy.Sprite.Y
 	}
 }
 
@@ -1229,33 +1224,56 @@ func (app *App) shootDemoEnemy() {
 	app.damageEnemy(target, 25)
 }
 
-// damageEnemy hurts an enemy (shots, crushers) and kills it at 0 HP.
+// newEnemyActor registers an enemy actor in the scripting engine's registry.
+func (app *App) newEnemyActor(id, typ string, x, y, hp float64) *actor.Actor {
+	a := &actor.Actor{ID: id, Type: typ, Faction: actor.Hostile, X: x, Y: y, Radius: bodyRadius,
+		HP: hp, MaxHP: hp, Alive: true}
+	app.scriptEngine.Actors.Add(a)
+	return a
+}
+
+// damageEnemyByID applies damage to an enemy by id (scripts: killEnemy,
+// setEnemyHP).
+func (app *App) damageEnemyByID(id string, dmg float64) {
+	for _, e := range app.enemies {
+		if e.ID == id {
+			app.damageEnemy(e, dmg)
+			return
+		}
+	}
+}
+
+// damageEnemy hurts an enemy (shots, crushers, scripts) and kills it at 0
+// HP: onEnemyDamage(id, type, dmg), onEnemyDead(id, type).
 func (app *App) damageEnemy(target *DemoEnemy, dmg float64) {
-	target.HP -= dmg
+	dealt, died := target.TakeDamage(dmg)
+	if dealt <= 0 {
+		return
+	}
 	target.Sprite.Alpha = 0.75
-	if target.Anim != nil && target.HP > 0 {
+	if target.Anim != nil && !died {
 		target.painT = enemyPainTime
 		target.Anim.Restart(anim.Pain)
 	}
-	if target.HP <= 0 {
-		target.HP = 0
-		target.Alive = false
-		// With a death animation the body stays as a corpse.
-		if target.Anim != nil && target.Anim.Set.Clip(anim.Death) != nil {
-			target.Sprite.Alpha = 1
-			target.Anim.Restart(anim.Death)
-		} else {
-			target.Sprite.Active = false
-		}
+	if died {
+		app.showEnemyDeath(target)
 		if app.scriptEngine != nil {
-			app.scriptEngine.Emit("onEnemyDead", target.ID)
-			if state := app.scriptEngine.Entities[target.ID]; state != nil {
-				state.HP = 0
-				state.Alive = false
-			}
+			app.scriptEngine.Emit("onEnemyDead", target.ID, target.Type)
 		}
 	} else if app.scriptEngine != nil {
-		app.scriptEngine.Emit("onEnemyDamage", target.ID, dmg)
+		app.scriptEngine.Emit("onEnemyDamage", target.ID, target.Type, dealt)
+	}
+}
+
+// showEnemyDeath starts the death animation (the body stays as a corpse)
+// or hides the enemy.
+func (app *App) showEnemyDeath(target *DemoEnemy) {
+	target.deathShown = true
+	if target.Anim != nil && target.Anim.Set.Clip(anim.Death) != nil {
+		target.Sprite.Alpha = 1
+		target.Anim.Restart(anim.Death)
+	} else {
+		target.Sprite.Active = false
 	}
 }
 
@@ -1526,17 +1544,14 @@ func (app *App) consoleCommand(cmd string, args []string) string {
 		if entType == "" {
 			return "spawn <entity> [x] [y]"
 		}
-		id := fmt.Sprintf("spawn_%d", len(app.enemies))
+		id := app.scriptEngine.Actors.NewID("spawn")
 		sprite := &renderer.Sprite{X: x, Y: y, Z: 0, Scale: 0.85, TexName: app.enemyFrame(0), Alpha: 1.0, Active: true, EntityID: id}
 		enemy := &DemoEnemy{
-			ID: id, Sprite: sprite, HP: 50, MaxHP: 50,
-			Speed: 1.15, Damage: 8, AttackRange: 0.85, State: "idle", Alive: true,
+			Actor: app.newEnemyActor(id, entType, x, y, 50), Sprite: sprite,
+			Speed: 1.15, Damage: 8, AttackRange: 0.85, State: "idle",
 		}
 		app.enemies = append(app.enemies, enemy)
 		app.sprites = append(app.sprites, sprite)
-		if app.scriptEngine != nil {
-			app.scriptEngine.Entities[id] = &scripting.EntityState{ID: id, Type: entType, HP: 50, MaxHP: 50, X: x, Y: y, Z: 0, Alive: true}
-		}
 		return fmt.Sprintf("spawned %s at (%.1f, %.1f)", entType, x, y)
 
 	case "give":
@@ -1555,9 +1570,7 @@ func (app *App) consoleCommand(cmd string, args []string) string {
 			// Kill specific enemy.
 			for _, e := range app.enemies {
 				if e.ID == target && e.Alive {
-					e.HP = 0
-					e.Alive = false
-					e.Sprite.Active = false
+					app.damageEnemy(e, e.HP)
 					return fmt.Sprintf("killed %s", target)
 				}
 			}
@@ -1567,9 +1580,7 @@ func (app *App) consoleCommand(cmd string, args []string) string {
 		count := 0
 		for _, e := range app.enemies {
 			if e.Alive {
-				e.HP = 0
-				e.Alive = false
-				e.Sprite.Active = false
+				app.damageEnemy(e, e.HP)
 				count++
 			}
 		}
