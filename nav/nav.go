@@ -142,28 +142,6 @@ func LineClear(g Grid, x0, y0, x1, y1, radius float64) bool {
 	return true
 }
 
-// SightClear reports whether an eye at (x0,y0,z0) sees the point (x1,y1,z1)
-// (z = absolute heights): no solid cell on the way and, when the grid has
-// Heights, the line stays between every crossed floor and ceiling.
-func SightClear(g Grid, x0, y0, z0, x1, y1, z1 float64) bool {
-	h, ok := g.(Heights)
-	dx, dy := x1-x0, y1-y0
-	steps := int(math.Hypot(dx, dy)/0.05) + 1
-	for i := 1; i < steps; i++ {
-		t := float64(i) / float64(steps)
-		c := CellAt(x0+dx*t, y0+dy*t)
-		if g.Solid(c.X, c.Y) {
-			return false
-		}
-		if ok {
-			if z := z0 + (z1-z0)*t; z <= h.FloorAt(c.X, c.Y) || z >= h.CeilAt(c.X, c.Y) {
-				return false
-			}
-		}
-	}
-	return true
-}
-
 // Steer returns a unit direction to move from (x,y) towards (tx,ty): straight
 // when the way is clear for a body of the given radius, otherwise towards the
 // first useful cell centre of an A* path. ok is false when there is no path.

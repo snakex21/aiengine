@@ -4,6 +4,7 @@ import (
 	"math"
 
 	"aiengine/nav"
+	"aiengine/world"
 )
 
 // Separation is the closest an enemy's centre comes to the player's centre:
@@ -60,13 +61,17 @@ func NewFighter(p Placement, seed int64) *Fighter {
 // Step advances the fighter by dt with the player at (px, py). blocked
 // reports positions the body may not enter (walls, other enemies). It
 // returns the damage dealt to the player in this step (0 or Damage).
-func (f *Fighter) Step(g nav.Grid, px, py, dt float64, blocked func(x, y float64) bool) float64 {
+// Sight uses the level geometry (world.Trace, the same query as the
+// player's shots); paths use the level's nav grid.
+func (f *Fighter) Step(lv *Level, px, py, dt float64, blocked func(x, y float64) bool) float64 {
+	var g nav.Grid = lv
 	if f.cooldown > 0 {
 		f.cooldown -= dt
 	}
 	dist := math.Hypot(px-f.X, py-f.Y)
-	ef, pf := floorAt(g, f.X, f.Y), floorAt(g, px, py)
-	sees := dist < f.Sight && nav.SightClear(g, f.X, f.Y, ef+EyeLevel, px, py, pf+EyeLevel)
+	geo := lv.Geometry()
+	ef, pf := world.FloorAt(geo, f.X, f.Y), world.FloorAt(geo, px, py)
+	sees := dist < f.Sight && f.Sees(geo, ef, px, py, pf)
 	reach := math.Abs(ef-pf) <= MeleeHeight
 
 	// Melee: telegraph (wind-up), then hit if the player is still in reach.
@@ -149,11 +154,8 @@ const (
 	MeleeHeight = 0.45
 )
 
-// floorAt is the floor height under a point when the grid has heights.
-func floorAt(g nav.Grid, x, y float64) float64 {
-	if h, ok := g.(nav.Heights); ok {
-		c := nav.CellAt(x, y)
-		return h.FloorAt(c.X, c.Y)
-	}
-	return 0
+// Sees reports whether the fighter (feet at height ef) has a clear line
+// from its eyes to the player's eyes (player feet at pf).
+func (f *Fighter) Sees(geo world.Geometry, ef, px, py, pf float64) bool {
+	return world.LineOfSight(geo, f.X, f.Y, ef+EyeLevel, px, py, pf+EyeLevel)
 }

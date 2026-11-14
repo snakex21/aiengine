@@ -1,6 +1,6 @@
-// renderer/player_test.go — Unit tests for player vertical (jump) physics.
+// world/player_test.go — Unit tests for player vertical (jump) physics.
 
-package renderer
+package world
 
 import (
 	"math"

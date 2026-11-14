@@ -30,6 +30,7 @@ import (
 	"aiengine/scripting"
 	"aiengine/systems"
 	"aiengine/ui"
+	"aiengine/world"
 )
 
 const (
@@ -1216,7 +1217,7 @@ func (app *App) shootDemoEnemy() {
 		if math.Abs(angle) > 0.18 {
 			continue
 		}
-		if !app.world().SightClear(app.player.X, app.player.Y, app.player.EyeZ(), enemy.Sprite.X, enemy.Sprite.Y, app.enemyAimHeight(enemy.Sprite)) {
+		if !world.LineOfSight(app.world(), app.player.X, app.player.Y, app.player.EyeZ(), enemy.Sprite.X, enemy.Sprite.Y, app.enemyAimHeight(enemy.Sprite)) {
 			continue
 		}
 		bestDist = dist

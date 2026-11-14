@@ -11,24 +11,16 @@ import (
 	"aiengine/level"
 	"aiengine/renderer"
 	"aiengine/systems"
+	"aiengine/world"
 )
 
 // bodyRadius is the collision radius of the player and enemies.
 const bodyRadius = 0.15
 
-// collider is the walkable world: the grid map or, for sector maps, the
-// sectors (both apply the same step and headroom rules).
-type collider interface {
-	Support(x, y, r float64) (floor, ceil float64)
-	CanOccupy(x, y, r, feet, maxStep, headroom float64) bool
-	SightClear(x0, y0, z0, x1, y1, z1 float64) bool
-}
-
-func (app *App) world() collider {
-	if app.raycaster.Sectors != nil {
-		return app.raycaster.Sectors
-	}
-	return app.raycaster.Map
+// world is the walkable world: the grid map or, for sector maps, the
+// sectors (both apply the same step, headroom and sight rules).
+func (app *App) world() world.Geometry {
+	return world.Of(app.raycaster.Map, app.raycaster.Sectors)
 }
 
 // placePlayer moves the player to (x, y) standing on that spot's floor (spawn,

@@ -1,4 +1,4 @@
-// renderer/heights.go — per-cell floor/ceiling heights for the grid map.
+// world/heights.go — per-cell floor/ceiling heights for the grid map.
 //
 // Heights are in wall-height units: a classic cell has its floor at 0 and
 // its ceiling at 1, and the camera sits 0.5 above the floor the player
@@ -10,7 +10,7 @@
 // next ceiling is lower. Those faces use the side texture of the cell they
 // belong to (MapData.Side, default DefaultSide).
 
-package renderer
+package world
 
 import "math"
 
@@ -44,6 +44,9 @@ func (m *MapData) SetHeights(ceiling float64) {
 }
 
 func (m *MapData) inside(x, y int) bool { return x >= 0 && x < m.Width && y >= 0 && y < m.Height }
+
+// Inside reports whether cell (x, y) is on the map.
+func (m *MapData) Inside(x, y int) bool { return m.inside(x, y) }
 
 // FloorAt returns the floor height of cell (x, y) (DefaultFloor outside the
 // map or without height data).
@@ -145,27 +148,6 @@ func (m *MapData) CanOccupy(x, y, r, feet, maxStep, headroom float64) bool {
 	for _, p := range bodyProbes(x, y, r) {
 		cx, cy := cellAtPoint(p[0], p[1])
 		if m.CeilAt(cx, cy)-stand < headroom-1e-9 {
-			return false
-		}
-	}
-	return true
-}
-
-// SightClear reports whether the straight segment from (x0,y0,z0) to
-// (x1,y1,z1) passes only through open cells and stays between their floor
-// and ceiling (z are absolute heights).
-func (m *MapData) SightClear(x0, y0, z0, x1, y1, z1 float64) bool {
-	dx, dy := x1-x0, y1-y0
-	dist := math.Hypot(dx, dy)
-	steps := int(dist/0.05) + 1
-	for i := 1; i < steps; i++ {
-		t := float64(i) / float64(steps)
-		cx, cy := cellAtPoint(x0+dx*t, y0+dy*t)
-		if m.GetCell(cx, cy) != CellEmpty {
-			return false
-		}
-		z := z0 + (z1-z0)*t
-		if z <= m.FloorAt(cx, cy) || z >= m.CeilAt(cx, cy) {
 			return false
 		}
 	}

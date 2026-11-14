@@ -127,7 +127,7 @@ func layerTex(f *frame, layer []uint8, i int, def *Texture2D) *Texture2D {
 }
 
 func (f *frame) cellIndex(m *MapData, x, y int) int {
-	if !m.inside(x, y) {
+	if !m.Inside(x, y) {
 		return -1
 	}
 	return y*m.Width + x

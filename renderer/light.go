@@ -77,28 +77,6 @@ func openLine(m *MapData, x0, y0, x1, y1 float64) bool {
 	return true
 }
 
-// LightAt returns the base light level of a cell (1 without a light layer).
-func (m *MapData) LightAt(x, y int) float64 {
-	if m.Light == nil || !m.inside(x, y) {
-		return 1
-	}
-	return m.Light[y*m.Width+x]
-}
-
-// SetLight changes one cell's base light (allocating the layer, all 1).
-func (m *MapData) SetLight(x, y int, v float64) {
-	if !m.inside(x, y) {
-		return
-	}
-	if m.Light == nil {
-		m.Light = make([]float64, m.Width*m.Height)
-		for i := range m.Light {
-			m.Light[i] = 1
-		}
-	}
-	m.Light[y*m.Width+x] = v
-}
-
 // lightEntry is the per-distance part of the lighting (8.8 fixed point),
 // indexed by distance*shadeRes.
 type lightEntry struct {
@@ -165,7 +143,7 @@ func (rc *Raycaster) prepareLighting(f *frame) {
 
 // light returns the light of cell (x, y) in 8.8 fixed point.
 func (f *frame) light(m *MapData, x, y int) int32 {
-	if f.cellLight == nil || !m.inside(x, y) {
+	if f.cellLight == nil || !m.Inside(x, y) {
 		return 256
 	}
 	return f.cellLight[y*m.Width+x]

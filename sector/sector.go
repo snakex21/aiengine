@@ -390,26 +390,3 @@ func SegmentHit(p0, p1 Vec2, l *Line) (t, u float64, ok bool) {
 	u = q.Cross(r) / den
 	return t, u, t >= 0 && t <= 1 && u >= 0 && u <= 1
 }
-
-// SightClear reports whether an eye at (x0,y0,z0) sees (x1,y1,z1): every
-// line crossed is a portal, and at the crossing the sight line passes above
-// both floors and below both ceilings.
-func (m *Map) SightClear(x0, y0, z0, x1, y1, z1 float64) bool {
-	p0, p1 := Vec2{x0, y0}, Vec2{x1, y1}
-	for i := range m.Lines {
-		l := &m.Lines[i]
-		t, _, ok := SegmentHit(p0, p1, l)
-		if !ok {
-			continue
-		}
-		if !l.TwoSided() {
-			return false
-		}
-		z := z0 + (z1-z0)*t
-		a, b := &m.Sectors[l.Front], &m.Sectors[l.Back]
-		if z <= math.Max(a.Floor, b.Floor) || z >= math.Min(a.Ceil, b.Ceil) {
-			return false
-		}
-	}
-	return true
-}

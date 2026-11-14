@@ -33,6 +33,7 @@ import (
 	"aiengine/parser"
 	"aiengine/renderer"
 	"aiengine/sector"
+	"aiengine/world"
 )
 
 // Placement is one PLACE line (or an object implied by a GRID symbol).
@@ -449,6 +450,10 @@ func (lv *Level) Doors() []DoorInfo {
 func (lv *Level) IsSolid(x, y float64) bool {
 	return lv.Map.GetCell(int(math.Floor(x)), int(math.Floor(y))) != renderer.CellEmpty
 }
+
+// Geometry is the level's space for movement, shots and sight: the sector
+// map when the level has one, otherwise the grid.
+func (lv *Level) Geometry() world.Geometry { return world.Of(lv.Map, lv.Sectors) }
 
 // FromDocumentString parses .aie source and builds its first MAP.
 func FromDocumentString(src string) (*Level, error) {

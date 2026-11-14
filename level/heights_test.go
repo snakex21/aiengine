@@ -8,6 +8,7 @@ import (
 	"aiengine/nav"
 	"aiengine/parser"
 	"aiengine/renderer"
+	"aiengine/world"
 )
 
 func loadSrc(t *testing.T, src string) *Level {
@@ -171,13 +172,13 @@ func TestSightOverLedge(t *testing.T) {
 	// Eyes at floor + 0.5 on row 2 see each other over the 0.5 ledge row?
 	// No - the line stays in row 2 (floor 0). Across row 3 (floor 0.5) an
 	// eye-level line from row 2 to beyond would touch the ledge top.
-	if !nav.SightClear(lv, 1.5, 2.5, 0.5, 8.5, 2.5, 0.5) {
+	if !world.LineOfSight(lv.Geometry(), 1.5, 2.5, 0.5, 8.5, 2.5, 0.5) {
 		t.Error("open row must be visible")
 	}
-	if nav.SightClear(lv, 1.5, 1.5, 0.5, 6.5, 1.5, 0.5) {
+	if world.LineOfSight(lv.Geometry(), 1.5, 1.5, 0.5, 6.5, 1.5, 0.5) {
 		t.Error("eye-level line into the rising stairs must hit the steps")
 	}
-	if !nav.SightClear(lv, 1.5, 1.5, 0.5, 6.5, 1.5, 1.5) {
+	if !world.LineOfSight(lv.Geometry(), 1.5, 1.5, 0.5, 6.5, 1.5, 1.5) {
 		t.Error("looking up the stairs at the eye on the platform is clear")
 	}
 }

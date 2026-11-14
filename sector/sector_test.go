@@ -108,22 +108,6 @@ func TestCollisionWithAngledWallsAndSteps(t *testing.T) {
 	}
 }
 
-func TestSightThroughPortal(t *testing.T) {
-	m := twoRooms(t)
-	if !m.SightClear(1, 2, 0.5, 6, 2, 0.75) {
-		t.Error("eye to eye through the doorway must be clear")
-	}
-	if m.SightClear(1, 2, 0.5, 6, 2, 0) {
-		t.Error("a line below the side room's floor edge must be blocked")
-	}
-	if m.SightClear(1, 2, 0.5, 6, 2, 2) {
-		t.Error("a line above the side room's ceiling must be blocked")
-	}
-	if m.SightClear(1, 0.5, 0.5, 6, 0.8, 0.5) {
-		t.Error("through the solid wall north of the doorway must be blocked")
-	}
-}
-
 type testGrid struct {
 	rows  []string
 	floor map[[2]int]float64
